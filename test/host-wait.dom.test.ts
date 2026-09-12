@@ -392,7 +392,12 @@ describe("one page-local waiting strip", () => {
     expect(latest(h, "setMode").modeId).toBe("yolo");
     click(h.window, h.doc.getElementById("gear-btn")!);
     click(h.window, h.doc.querySelector(".effort-strip-stop")!);
+    // The strip previews and commits on CLOSE, so the tap alone sends nothing
+    // (research/composer-chip.md). Close it, then reopen for the model row.
+    expect(requests(h, "setEffort")).toHaveLength(0);
+    click(h.window, h.doc.getElementById("gear-btn")!);
     expect(requests(h, "setEffort")).toHaveLength(1);
+    click(h.window, h.doc.getElementById("gear-btn")!);
     const model = [...h.doc.querySelectorAll(".toolbar-popover-item")].find((el) => el.getAttribute("title") === "another-model");
     click(h.window, model!);
     expect(requests(h, "setModel")).toHaveLength(1);

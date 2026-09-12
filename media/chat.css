@@ -1285,6 +1285,12 @@ a:hover {
   max-width: 350px;
   box-sizing: border-box;
 }
+/* 350px is a desk number. On a phone it forces "Context used" and its figure
+   onto separate lines and still leaves the ledger's own columns fighting, so
+   let it take the width the screen actually has. */
+@media (hover: none), (pointer: coarse) {
+  #context-popover { max-width: min(94vw, 420px); }
+}
 #context-popover .popover-fineprint,
 #context-popover .popover-info { white-space: normal; }
 /* .history-popover sets display:flex, which would otherwise beat the UA
@@ -3829,6 +3835,11 @@ textarea#input {
 .effort-strip-track {
   position: relative; height: 34px; margin: 2px 2px 0;
   display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; align-items: center;
+  /* The knob is draggable, so the browser must not claim the gesture as a
+     scroll the moment the finger moves vertically -- on a phone it always does.
+     `none` on the track covers the stops too, but they set it themselves
+     because a press that starts ON a dot is the common case. */
+  touch-action: none; user-select: none;
 }
 /* Rail and fill share a box. Clip the gradient slice, never compress it by
    sizing the fill's width: the same effort must always have the same colour. */
@@ -3845,7 +3856,10 @@ textarea#input {
 .effort-strip-stop {
   height: 34px; padding: 0; border: 0; background: transparent; cursor: pointer;
   display: grid; place-items: center; position: relative; z-index: 1;
+  touch-action: none;
 }
+.effort-strip-stop.current { cursor: grab; }
+.effort-strip-track:active .effort-strip-stop.current { cursor: grabbing; }
 .effort-strip-stop i {
   width: 8px; height: 8px; border-radius: 50%; display: block;
   background: var(--vscode-editorWidget-border);

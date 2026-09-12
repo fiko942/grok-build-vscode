@@ -2063,6 +2063,7 @@
   // ---------- popovers ----------
 
   function closePopovers() {
+    flushEffort();
     gearBtn.setAttribute("aria-expanded", "false");
     gearPopover.classList.remove("model-picker");
     gearPopover.removeAttribute("role");
@@ -3830,6 +3831,12 @@
       el.onclick = (e) => {
         e.stopPropagation();
         if (modelSelectionLocked()) return;
+        // A model carries its own ladder, so an effort previewed against the
+        // PREVIOUS model is not a choice to honour -- committing it on the close
+        // below could send a level this model never advertised. The host applies
+        // the new model's own effort and `modelChanged` reconciles the strip.
+        effortPending = null;
+        effortBaseline = null;
         const message = { type: "setModel", modelId: m.modelId };
         if (state.providersKnown && m.provider) message.provider = m.provider;
         vscode.postMessage(message);
@@ -4384,17 +4391,39 @@
     effortNoticeTimer = setTimeout(() => { notice.textContent = ""; }, 4000);
   }
 
+  // The strip PREVIEWS while it is open and commits ONCE, when it closes.
+  // Committing per tap was unusable on an empty session: the first tap restarts
+  // the session, `busy` locks the control mid-gesture, and the host drops every
+  // later change with its own `session.priming` guard -- so a mis-tap could not
+  // be corrected until the restart finished, which reads as "nothing happens".
+  // One commit at the end is also one restart, not one per stop a finger crosses.
+  let effortPending = null;   // the level the strip is showing, once it has moved
+  let effortBaseline = null;  // what the host had when this opening began
+
+  /** Commit the previewed effort, if it actually differs from where we started. */
+  function flushEffort() {
+    const level = effortPending;
+    const baseline = effortBaseline;
+    effortPending = null;
+    effortBaseline = null;
+    if (level === null || level === baseline) return;
+    vscode.postMessage({ type: "setEffort", level });
+  }
+
   function renderEffortStrip() {
     const box = document.createElement("div");
     box.className = "model-effort-strip";
     const levels = currentModel() ? effortLevelsForModel() : [];
     const locked = modelSelectionLocked();
-    const select = (level) => {
+    const preview = (level) => {
       if (modelSelectionLocked()) return;
+      // First move of this opening: remember what the host had, so returning to
+      // the level you started on closes without posting anything at all.
+      if (effortBaseline === null) effortBaseline = effectiveEffort();
       state.effort = level;
+      effortPending = level;
       // Reset must not reuse metadata that represents a previous override.
       if (!level && currentModel()) currentModel().reasoningEffort = undefined;
-      vscode.postMessage({ type: "setEffort", level });
       syncModelChip();
       update();
     };
@@ -4409,7 +4438,7 @@
     reset.textContent = "Reset";
     reset.title = "Reset to the provider default";
     reset.disabled = locked;
-    reset.onclick = (e) => { e.stopPropagation(); select(""); };
+    reset.onclick = (e) => { e.stopPropagation(); preview(""); };
     header.append(label, value, reset);
     const track = document.createElement("div");
     track.className = "effort-strip-track";
@@ -4429,7 +4458,7 @@
       stop.title = EFFORT_TOOLTIPS[level] || effortLabel(level);
       stop.disabled = locked;
       stop.innerHTML = "<i></i>";
-      stop.onclick = (e) => { e.stopPropagation(); select(level); };
+      stop.onclick = (e) => { e.stopPropagation(); preview(level); };
       stop.onkeydown = (e) => {
         const delta = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1
           : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
@@ -4437,11 +4466,47 @@
           : delta ? (index + delta + levels.length) % levels.length : -1;
         if (next < 0) return;
         e.preventDefault(); e.stopPropagation();
-        select(levels[next]); stops[next].focus();
+        preview(levels[next]); stops[next].focus();
       };
       track.appendChild(stop);
       return stop;
     });
+    // Drag the knob. The track is a grid of equal columns, so the column under
+    // the pointer IS the stop -- no rail-geometry maths that could disagree with
+    // where the dots are actually painted. Pointer capture keeps the gesture
+    // alive once the finger leaves the 42px band, which on a phone it always
+    // does, and `touch-action: none` (chat.css) stops the popover scrolling
+    // underneath it instead.
+    const levelAt = (clientX) => {
+      const r = track.getBoundingClientRect();
+      if (!levels.length || !(r.width > 0)) return null;
+      const i = Math.floor((clientX - r.left) / (r.width / levels.length));
+      return levels[Math.min(levels.length - 1, Math.max(0, i))];
+    };
+    let dragging = false;
+    track.addEventListener("pointerdown", (e) => {
+      if (modelSelectionLocked() || e.button > 0) return;
+      dragging = true;
+      try { track.setPointerCapture(e.pointerId); } catch {}
+      const level = levelAt(e.clientX);
+      if (level !== null) preview(level);
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    track.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const level = levelAt(e.clientX);
+      if (level !== null && level !== state.effort) preview(level);
+      e.preventDefault();
+    });
+    const endDrag = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      try { track.releasePointerCapture(e.pointerId); } catch {}
+    };
+    track.addEventListener("pointerup", endDrag);
+    track.addEventListener("pointercancel", endDrag);
+
     const update = () => {
       const level = effectiveEffort();
       const index = levels.indexOf(level);

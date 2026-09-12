@@ -59,29 +59,83 @@ describe("composer chip", () => {
     expect(h.posted.some((m) => ["setEffort", "setModel"].includes(m.type))).toBe(false);
   });
 
-  it("updates the same strip on click and keyboard, reconciles refusal without clearing context", () => {
+  const efforts = (h: H) => h.posted.filter((m) => m.type === "setEffort");
+
+  it("previews on click and keyboard but commits ONCE, on close, at the level it ended on", () => {
     const h = boot();
-    dispatch(h.window, { type: "contextUsage", used: 71000, window: 100000, systemPromptTokens: 1234, messageTokens: 69000 });
     open(h);
     const track = h.doc.querySelector(".effort-strip-track")!;
     const low = h.doc.querySelector('[data-effort="low"]') as HTMLElement;
     click(h.window, low);
-    expect(h.posted).toContainEqual({ type: "setEffort", level: "low" });
-    expect(h.doc.querySelector(".effort-strip-track")).toBe(track);
+    // The chip follows immediately; the host hears nothing yet. Committing here
+    // is what restarted an empty session mid-gesture, locked the control through
+    // `busy`, and left every correction to be dropped by the priming guard.
     expect(h.doc.querySelector(".model-chip-effort")?.textContent).toBe("Low");
+    expect(efforts(h)).toEqual([]);
+    expect(h.doc.querySelector(".effort-strip-track")).toBe(track);
     low.dispatchEvent(new h.window.KeyboardEvent("keydown", { key: "End", bubbles: true }));
-    expect(h.posted).toContainEqual({ type: "setEffort", level: "xhigh" });
     expect(h.doc.querySelector('[data-effort="xhigh"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(efforts(h)).toEqual([]);
+    open(h);
+    expect(efforts(h)).toEqual([{ type: "setEffort", level: "xhigh" }]);
+  });
+
+  it("commits nothing when the knob ends where it started", () => {
+    const h = boot(); // boots at high
+    open(h);
+    click(h.window, h.doc.querySelector('[data-effort="low"]')!);
+    click(h.window, h.doc.querySelector('[data-effort="high"]')!);
+    open(h);
+    expect(efforts(h)).toEqual([]);
+  });
+
+  it("drags the knob across stops and commits the one the finger is lifted on", () => {
+    const h = boot();
+    open(h);
+    const track = h.doc.querySelector(".effort-strip-track") as HTMLElement;
+    // Four stops over 400px: low 0-100, medium 100-200, high 200-300, xhigh 300+.
+    track.getBoundingClientRect = () => ({ left: 0, width: 400, top: 0, height: 42,
+      right: 400, bottom: 42, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const at = (type: string, clientX: number) => track.dispatchEvent(
+      new h.window.PointerEvent(type, { clientX, bubbles: true, pointerId: 1 }));
+    at("pointerdown", 10);
+    expect(h.doc.querySelector(".model-chip-effort")?.textContent).toBe("Low");
+    at("pointermove", 150);
+    expect(h.doc.querySelector(".model-chip-effort")?.textContent).toBe("Medium");
+    at("pointermove", 350);
+    expect(h.doc.querySelector(".model-chip-effort")?.textContent).toBe("Extra high");
+    at("pointerup", 350);
+    expect(efforts(h)).toEqual([]);
+    open(h);
+    expect(efforts(h)).toEqual([{ type: "setEffort", level: "xhigh" }]);
+  });
+
+  it("a move with no button down does not drag the knob", () => {
+    const h = boot();
+    open(h);
+    const track = h.doc.querySelector(".effort-strip-track") as HTMLElement;
+    track.getBoundingClientRect = () => ({ left: 0, width: 400, top: 0, height: 42,
+      right: 400, bottom: 42, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    track.dispatchEvent(new h.window.PointerEvent("pointermove", { clientX: 10, bubbles: true, pointerId: 1 }));
+    expect(h.doc.querySelector(".model-chip-effort")?.textContent).toBe("High");
+    open(h);
+    expect(efforts(h)).toEqual([]);
+  });
+
+  it("reconciles a refusal without clearing context, and Reset commits the default", () => {
+    const h = boot();
+    dispatch(h.window, { type: "contextUsage", used: 71000, window: 100000, systemPromptTokens: 1234, messageTokens: 69000 });
+    open(h);
     dispatch(h.window, { type: "initialState", effort: "high", appPurpose: "coding" });
     expect(h.doc.querySelector(".model-chip-effort")?.textContent).toBe("High");
     expect(h.doc.getElementById("donut-label")?.textContent).toBe("71K/100K");
     expect(h.doc.getElementById("gear-popover")!.hidden).toBe(false);
     click(h.window, h.doc.querySelector(".effort-reset")!);
-    expect(h.posted).toContainEqual({ type: "setEffort", level: "" });
     expect(h.doc.querySelectorAll('.effort-strip-stop[aria-checked="true"]')).toHaveLength(0);
+    open(h, "donut"); // opening another popover closes this one, which commits
+    expect(efforts(h)).toEqual([{ type: "setEffort", level: "" }]);
     dispatch(h.window, { type: "initialState", effort: "medium", appPurpose: "coding" });
     expect(h.doc.querySelector(".model-chip-effort")?.textContent).toBe("Medium");
-    open(h, "donut");
     expect(h.doc.getElementById("context-popover")!.textContent).toContain("In this window");
     expect(h.doc.getElementById("context-popover")!.textContent?.replace(/\s/g, "")).toContain("System1,234");
   });
