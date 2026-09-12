@@ -485,9 +485,9 @@ describe("rail gear placement (DOM)", () => {
     // frequency control and must stay next to the composer.
     expect(composerGear.hidden).toBe(false);
     expect(railGear.hidden).toBe(false);
-    // ...but it must not be a SECOND gear: sliders (lucide settings-2) vs gear.
-    // circle+circle is settings-2's signature; the gear has exactly one.
-    expect(composerGear.querySelector(".provider-logo")).toBeTruthy();
+    // ...but it must not be a SECOND gear. It names the model instead, and the
+    // gear's own path (M12.22 2h-.44) never appears in it.
+    expect(composerGear.querySelector(".model-chip-name")?.textContent).toBeTruthy();
     expect(composerGear.innerHTML).not.toContain("M12.22 2h-.44");
   });
 
@@ -613,7 +613,7 @@ describe("rail gear placement (DOM)", () => {
     });
     dispatch(h.window, { type: "sessionName", sessionId: "active", name: "Active", cwd: "/w" });
     const composerGear = h.doc.getElementById("gear-btn")!;
-    expect(composerGear.querySelector(".provider-logo")).toBeTruthy();
+    expect(composerGear.querySelector(".model-chip-name")?.textContent).toBeTruthy();
     openGear(h);
     // The chip keeps the conversation controls; + takes the app rows.
     expect(gearText(h)).toContain("Effort");

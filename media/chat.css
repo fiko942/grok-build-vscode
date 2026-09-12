@@ -3745,10 +3745,6 @@ textarea#input {
 .model-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .model-chip-effort { flex: none; color: var(--vscode-descriptionForeground); }
 .model-chip-effort:empty { display: none; }
-.model-chip .provider-glyph { flex: none; width: 14px; height: 14px; }
-.model-chip .provider-logo { width: 14px; height: 14px; }
-.model-chip-chevron { display: flex; flex: none; opacity: .75; }
-.model-chip .model-chip-chevron svg { width: 12px; height: 12px; }
 #chips:empty { display: none; }
 .composer-effort-notice {
   position: absolute; bottom: calc(100% + 4px); left: var(--pad); right: var(--pad);
@@ -3773,8 +3769,10 @@ textarea#input {
 @container composer-card (max-width: 272px) {
   .model-chip-name { max-width: 66px; }
 }
+/* The name is the chip's whole content now, so the narrowest rung trims it
+   rather than hiding it -- the glyph that used to stand in its place is gone. */
 @container composer-card (max-width: 224px) {
-  .model-chip-name { display: none; }
+  .model-chip-name { max-width: 44px; }
 }
 @media (hover: none), (pointer: coarse) {
   /* min-width, not just height: the mode word is the first rung of the collapse
@@ -3795,7 +3793,7 @@ textarea#input {
     #gear-btn.model-chip { padding: 0 2px; gap: 2px; min-width: 36px; }
   }
   @container composer-card (max-width: 250px) {
-    .model-chip-name { display: none; }
+    .model-chip-name { max-width: 52px; }
   }
 }
 

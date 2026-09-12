@@ -4353,17 +4353,19 @@
       ? modelDisplayName(state.currentModelId, state.availableModels.filter((m) => !m.provider || m.provider === state.activeProvider))
       : "Loading…";
     const effort = currentModel() && !unavailable ? effortLabel(effectiveEffort()) : "";
-    gearBtn.replaceChildren(makeProviderGlyph(state.activeProvider));
+    // Name and effort, and nothing else. The provider is already spelled out by
+    // the model name itself, and a chevron on this button and none on the mode
+    // button beside it made one of the two look like the menu (owner, 2026-09-13
+    // -- both are toolbar buttons that open a popover). Dropping the glyph also
+    // takes away the last rung's fallback, so the name now narrows instead of
+    // disappearing: an empty button is not a smaller button.
     const model = document.createElement("span");
     model.className = "model-chip-name";
     model.textContent = name;
     const word = document.createElement("span");
     word.className = "model-chip-effort";
     word.textContent = effort;
-    const chevron = document.createElement("span");
-    chevron.className = "model-chip-chevron";
-    chevron.innerHTML = ICON.chevronDown;
-    gearBtn.append(model, word, chevron);
+    gearBtn.replaceChildren(model, word);
     gearBtn.disabled = false; // Selection can lock; provider recovery cannot.
     gearBtn.title = [name, effort, "Model and effort"].filter(Boolean).join(" · ")
       + (modelSelectionLocked() ? " — selection available once the session is ready" : "");

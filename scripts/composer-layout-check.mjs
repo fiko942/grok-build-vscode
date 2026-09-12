@@ -109,14 +109,11 @@ try {
         assert.equal(m.donutLabel.display === "none", touch || m.query <= 470, `${tag}: donut rung`);
         assert.equal(m.mode.display === "none", m.query <= 430, `${tag}: mode rung`);
         assert.equal(m.effort.display === "none", touch || m.query <= 300, `${tag}: effort rung`);
-        assert.equal(m.name.display === "none", m.query <= (touch ? 250 : 224), `${tag}: name rung`);
-        if (m.name.display !== "none") assert(m.name.width > 0, `${tag}: name must not silently shrink away`);
-        assert(await page.locator("#gear-btn").evaluate((chip) => {
-          const r = chip.getBoundingClientRect();
-          return [...chip.querySelectorAll(".provider-glyph, .model-chip-chevron")].every((el) => {
-            const c = el.getBoundingClientRect(); return c.width > 0 && c.left >= r.left && c.right <= r.right;
-          });
-        }), `${tag}: provider and chevron remain unclipped`);
+        // The name never hides: it is the only thing the chip says once the
+        // effort word has gone, so the last rungs narrow it instead.
+        assert.notEqual(m.name.display, "none", `${tag}: name rung`);
+        assert(m.name.width > 0, `${tag}: name must not silently shrink away`);
+        assert(m.name.x >= m.chip.x && m.name.right <= m.chip.right + .5, `${tag}: name clipped by the chip`);
         if (surface === "vscode" && width === 334) {
           assert(m.effort.width > 0 && m.effort.client >= m.effort.scroll, `${tag}: effort rendered and unclipped`);
           assert(m.effort.right <= m.chip.right && m.effort.right <= m.left.right, `${tag}: effort ancestor clipping`);

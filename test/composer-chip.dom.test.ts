@@ -29,10 +29,10 @@ describe("composer chip", () => {
   it.each(["vscode", "desktop", "remote", "phone"])("opens directly with pinned effort/models/recovery on %s", (surface) => {
     const h = boot(surface);
     const chip = h.doc.getElementById("gear-btn")!;
+    // Name and effort only: no provider glyph, no chevron (research/composer-chip.md).
     expect([...chip.children].map((el) => el.classList[0])).toEqual([
-      "provider-glyph", "model-chip-name", "model-chip-effort", "model-chip-chevron",
+      "model-chip-name", "model-chip-effort",
     ]);
-    expect(chip.querySelector(".provider-logo path")?.getAttribute("d")).toBeTruthy();
     expect(chip.textContent).toBe("Grok BuildHigh");
     open(h);
     const pop = h.doc.getElementById("gear-popover")!;

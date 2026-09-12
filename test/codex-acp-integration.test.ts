@@ -70,6 +70,43 @@ describe("Codex ACP integration (real subprocess, fake adapter)", () => {
     expect(modes).toContain("agent-full-access");
   });
 
+  it.each([
+    // Advertised by the current model: publish it, because the RPC below applies it.
+    ["ultra", "ultra"],
+    // Not on this model's menu: the RPC below is refused, so the CLI's own value
+    // is the honest one to publish.
+    ["medium", "high"],
+  ])("announces %s as %s in the catalog the session event publishes", async (spawned, announced) => {
+    // The `session` event is what the host turns into the picker's catalog, and
+    // for an adapter it fires BEFORE the post-session/new effort RPC. Publishing
+    // the CLI's configured default there is what made a Codex effort change snap
+    // back on a remote: the strip redrew at gpt-6-astra's configured `ultra` and
+    // nothing afterwards corrected it -- setReasoningEffort emits no event, and
+    // the modelChanged a model switch emits keeps an in-ladder level.
+    const configured = new AcpClient({
+      cliPath: "C:\Tools\codex.exe",
+      cwd: process.cwd(),
+      backend: new CodexBackend({ adapterPath: path.join(__dirname, "fixtures", "fake-codex-acp.cjs") }),
+      env: { ...process.env, CODEX_HOME: codexHome },
+      effort: spawned as any,
+      log: () => {},
+    });
+    try {
+      await configured.start();
+      // Snapshot what the HOST reads in its own `session` handler: the client's
+      // live catalog at the instant the event fires, not the settled state.
+      let catalog: any[] = [];
+      configured.once("session", () => { catalog = configured.availableModels.map((m) => ({ ...m })); });
+      await configured.newSession();
+      const current = catalog.find((m) => m.modelId === configured.currentModelId);
+      expect(current?.reasoningEfforts).toEqual(["low", "high", "ultra"]);
+      expect(current?.reasoningEffort).toBe(announced);
+    } finally {
+      configured.removeAllListeners();
+      await configured.dispose();
+    }
+  });
+
   it("steers text and images while the prompt and its tool remain in flight", async () => {
     await client.newSession();
     const normalize = vi.spyOn((client as any).backend, "normalizePromptResult");
