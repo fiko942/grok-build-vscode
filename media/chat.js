@@ -505,11 +505,11 @@
     xhigh: "XHigh — deepest reasoning, slowest",
   };
 
-  // The effort levels the gear picker OFFERS: the ACTIVE model's advertised menu
+  // The effort levels the model picker OFFERS: the ACTIVE model's advertised menu
   // (`models[]._meta.reasoningEfforts`, already delivered to the webview on the
   // `session` message), ordered low→high with any unknown advertised value
   // appended. Falls back to the full ladder only when a model advertises none
-  // (older CLI / non-reasoning model). So the dots always match what the current
+  // (older CLI / non-reasoning model). So the stops always match what the current
   // model actually accepts — not a hardcoded set (grok-4.5 advertises just
   // low/medium/high). The advertised list rides in state.availableModels, which
   // is our per-session cache; the picker is locked until that's loaded anyway.
@@ -1320,7 +1320,12 @@
     remoteBtn.onclick = () => vscode.postMessage({ type: "openRemotePortal", withHint: true });
   }
   updateSendButton(); // spinner by default — session is starting up (busy+locked)
-  gearBtn.innerHTML = ICON.gear;
+  gearBtn.classList.remove("icon-btn");
+  gearBtn.classList.add("toolbar-btn", "model-chip");
+  gearBtn.setAttribute("aria-haspopup", "dialog");
+  gearBtn.setAttribute("aria-expanded", "false");
+  micBtn.classList.add("icon-btn", "mic-btn");
+  addBtn.after(micBtn);
   addBtn.innerHTML = ICON.plus;
   scrollBottomBtn.innerHTML = `${ICON.arrowDown}<span class="scroll-bottom-label">Scroll to bottom</span>`;
   // Created here rather than in the page, because the template lives in
@@ -2058,6 +2063,10 @@
   // ---------- popovers ----------
 
   function closePopovers() {
+    gearBtn.setAttribute("aria-expanded", "false");
+    gearPopover.classList.remove("model-picker");
+    gearPopover.removeAttribute("role");
+    gearPopover.removeAttribute("aria-label");
     modePopover.hidden = true;
     gearPopover.hidden = true;
     addPopover.hidden = true;
@@ -2174,12 +2183,23 @@
       `${tok(used)} / ${tok(state.contextWindow)} (${pct}%)`,
     );
 
-    // Compact sits directly under the context line — it is the action ON that
-    // number, so it belongs to it, not stranded below the billing sections.
-    // Every popover row is a DIV: a <button> here drags in native chrome
-    // (background + border) that reads as a stray box in the popover.
-    const act = document.createElement("div");
-    act.className = "toolbar-popover-item popover-action context-compact" + (used ? "" : " disabled");
+    const bar = document.createElement("div");
+    bar.className = "context-fullness";
+    bar.setAttribute("role", "meter");
+    bar.setAttribute("aria-label", "Context used");
+    bar.setAttribute("aria-valuemin", "0");
+    bar.setAttribute("aria-valuemax", "100");
+    bar.setAttribute("aria-valuenow", String(pct));
+    const fill = document.createElement("i");
+    fill.style.width = pct + "%";
+    fill.style.setProperty("--context-fill", contextFullnessColor(pct));
+    bar.appendChild(fill);
+    contextPopover.appendChild(bar);
+
+    const act = document.createElement("button");
+    act.type = "button";
+    act.className = "context-compact";
+    act.disabled = !used;
     act.textContent = "Compact conversation";
     act.title = used ? "Summarize the conversation so far to free up context" : "Nothing to compact yet";
     if (used) {
@@ -2416,22 +2436,25 @@
     applyExpandCommandOutputs();
     syncChangesAvailability();
     if (!gearPopover.hidden && state.gearView === "main") renderGearMain();
+    if (!addPopover.hidden) renderAddPopover();
+    refreshModelControls();
     syncGearPlacement();
   }
 
-  function addSection(label) {
+  function addSection(label, target = gearPopover) {
     const el = document.createElement("div");
     el.className = "popover-section";
     el.textContent = label;
-    gearPopover.appendChild(el);
+    target.appendChild(el);
   }
 
-  function addGearItem(labelHtml, onclick) {
+  function addGearItem(labelHtml, onclick, target = gearPopover) {
     const el = document.createElement("div");
     el.className = "toolbar-popover-item";
     el.innerHTML = labelHtml;
     el.onclick = (e) => { e.stopPropagation(); onclick(); };
-    gearPopover.appendChild(el);
+    target.appendChild(el);
+    return el;
   }
 
   // Dialogs can overlap (including a wizard arriving from the host), and close
@@ -3314,12 +3337,8 @@
     reportLayerDepth();
   }
 
-  function openAllSettings() {
-    openSettingsCategory();
-  }
-
-  function openSettingsCategory(category) {
-    const opener = appSettingsButton() || document.getElementById("gear-btn") || document.activeElement;
+  function openSettingsCategory(category, fromButton) {
+    const opener = fromButton || appSettingsButton() || document.getElementById("gear-btn") || document.activeElement;
     closePopovers();
     if (hostOpensSettingsEditor()) {
       const message = { type: "openSettingsSurface" };
@@ -3487,109 +3506,19 @@
 
   function renderGearMain() {
     state.gearView = "main";
+    gearPopover.classList.remove("model-picker");
+    gearPopover.removeAttribute("role");
+    gearPopover.removeAttribute("aria-label");
     gearPopover.innerHTML = "";
     gearPopover.classList.remove("popover-centered");
 
-    // Two surfaces, one popover. With a rail gear the composer holds what is
-    // about THIS CONVERSATION (model, effort, where it continues) and the rail
-    // holds what is about THE APP (account, purpose, settings, about). Without
-    // one — VS Code — both flags are true and nothing is split, which is why
-    // this needs no host branch.
-    const split = railGearLive();
-    const showConversation = !split || state.gearSurface !== "rail";
-    const showApp = !split || state.gearSurface === "rail";
-
-    if (showConversation) renderGearConversation();
-    if (showApp) {
-      renderGearApp();
-      renderProviderAccounts();
-    }
+    if (state.gearSurface !== "rail") { renderModelPicker(); return; }
+    renderGearApp();
+    renderProviderAccounts();
   }
 
-  /** Model + effort, plus worktree controls that have no header-menu home. */
+  /** Worktree controls retain their existing availability and confirmations. */
   function renderGearConversation() {
-    // ── Model + effort header ─────────────────────────────────────────────
-    const modelEffortSection = document.createElement("div");
-    // When Text size leads, Model and Effort is no longer the first row — keep
-    // the section rule so a separator appears under the slider.
-    modelEffortSection.className = "popover-section" +
-      (CLIENT_OWNS_FONT_SCALE ? "" : " popover-section-first");
-    modelEffortSection.textContent = "Model and Effort";
-    gearPopover.appendChild(modelEffortSection);
-
-    // ── Model + effort row ────────────────────────────────────────────────
-    const row = document.createElement("div");
-    row.className = "model-effort-row";
-
-    // Model + effort both restart or race the session, so they are locked while
-    // a turn or session startup is in flight (the same busy signal as Send).
-    //
-    // Also locked when NOTHING can answer: with no usable agent there is no
-    // model to choose between, and an enabled picker offering a list you cannot
-    // act on is worse than one that plainly says not yet. Connect an agent and
-    // it unlocks with that agent's own default selected (owner, 2026-08-17).
-    const anyUsableProvider = !state.providersKnown
-      || (state.providers || []).some((p) => p.connected && p.needsLogin !== true);
-    const settingsLocked = state.busy || !anyUsableProvider;
-
-    // Until the session's model info arrives (its name + advertised effort menu),
-    // don't show a guessed model or a stale effort ladder — show a Loading state.
-    const modelLoaded = state.availableModels.length > 0 && !!state.currentModelId;
-
-    const nameBtn = document.createElement("button");
-    nameBtn.className = "toolbar-btn model-name-btn" + (settingsLocked || !modelLoaded ? " disabled" : "");
-    const ownModels = state.availableModels.filter((model) => !model.provider || model.provider === state.activeProvider);
-    // With no agent able to answer, show that rather than the last model a
-    // session happened to remember. "GPT-5.6 Sol" sitting under the composer
-    // reads as a working selection when nothing can run at all.
-    const modelName = !anyUsableProvider
-      ? "Models unavailable"
-      : (modelLoaded ? (modelDisplayName(state.currentModelId, ownModels) || "Grok Build") : "Loading…");
-    nameBtn.innerHTML = `<span class="btn-label">${escapeHtml(truncate(modelName, 18))}</span>`;
-    nameBtn.disabled = settingsLocked || !modelLoaded;
-    nameBtn.title = !anyUsableProvider
-      ? "Connect an agent to choose a model"
-      : (!modelLoaded
-        ? "Loading the session…"
-        : (settingsLocked ? `${modelName} — available once the session is ready` : `${modelName} — click to change`));
-    if (!settingsLocked && modelLoaded) nameBtn.onclick = (e) => { e.stopPropagation(); renderModelPicker(); };
-    row.appendChild(nameBtn);
-
-    const dotsEl = document.createElement("span");
-    dotsEl.className = "effort-dots" + (settingsLocked || !modelLoaded ? " disabled" : "");
-    if (!modelLoaded) {
-      // Loading: neutral placeholder dots — we don't know the model's menu yet,
-      // so show a fixed skeleton rather than the (stale) fallback ladder.
-      for (let i = 0; i < 5; i++) {
-        const dot = document.createElement("span");
-        dot.className = "effort-dot loading disabled";
-        dot.title = "Loading the session…";
-        dotsEl.appendChild(dot);
-      }
-    } else {
-      const effortLevels = effortLevelsForModel();
-      const currentIdx = effortLevels.indexOf(state.effort);
-      effortLevels.forEach((id, i) => {
-        const dot = document.createElement("span");
-        dot.className = "effort-dot" + (i <= currentIdx ? " active" : "") + (settingsLocked ? " disabled" : "");
-        // Render the dot as a CSS-shaped span (see chat.css). Avoids the classic
-        // ● vs ○ Unicode size mismatch where the empty glyph is visibly larger.
-        dot.title = settingsLocked
-          ? "Available once the session is ready"
-          : (EFFORT_TOOLTIPS[id] || capitalize(id));
-        if (!settingsLocked) dot.onclick = (e) => {
-          e.stopPropagation();
-          state.effort = state.effort === id ? "" : id;
-          vscode.postMessage({ type: "setEffort", level: state.effort });
-          renderGearMain();
-          gearPopover.hidden = false;
-        };
-        dotsEl.appendChild(dot);
-      });
-    }
-    row.appendChild(dotsEl);
-    gearPopover.appendChild(row);
-
     // ── Session ───────────────────────────────────────────────────────────
     // Conversation-wide actions live in the header's overflow on every
     // surface. Worktree Apply/Remove remain here because the VS Code overflow
@@ -3629,21 +3558,28 @@
   }
 
   /** The app itself: what it is used for, settings, and about. */
-  function renderGearApp() {
+  function renderGearApp(target = gearPopover) {
+    const section = (label) => addSection(label, target);
+    const item = (html, action) => addGearItem(html, action, target);
+    const refresh = () => {
+      if (target === addPopover) renderAddPopover();
+      else renderGearMain();
+      target.hidden = false;
+    };
     // ── Use this app for ──────────────────────────────────────────────────
     // Progressive disclosure: Knowledge work (default) hides worktrees,
     // thinking traces and tool details; Coding unlocks them (still default off).
     // Icons here only. The same choice in Settings is a <select>, where an
     // option cannot carry markup — so it stays text and the two surfaces
     // differ deliberately rather than by neglect.
-    addSection("Use this app for");
-    addGearItem(
+    section("Use this app for");
+    item(
       `<span class="gear-lead" title="Hides worktrees, thinking traces, and tool details. The default for knowledge work.">${ICON.brain}<span>Knowledge work</span></span>${state.appPurpose !== "coding" ? '<span class="popover-check">✓</span>' : ""}`,
-      () => { setAppPurpose("knowledge"); renderGearMain(); gearPopover.hidden = false; },
+      () => { setAppPurpose("knowledge"); refresh(); },
     );
-    addGearItem(
+    item(
       `<span class="gear-lead" title="Adds worktrees, thinking traces, and tool details (still off by default).">${ICON.squareChevronRight}<span>Coding</span></span>${state.appPurpose === "coding" ? '<span class="popover-check">✓</span>' : ""}`,
-      () => { setAppPurpose("coding"); renderGearMain(); gearPopover.hidden = false; },
+      () => { setAppPurpose("coding"); refresh(); },
     );
 
     // ── Remote Control ────────────────────────────────────────────────────
@@ -3651,33 +3587,35 @@
     // `remoteLinked === null` = the host hasn't answered yet: show NOTHING
     // rather than guessing. Unlink lives only in Settings → Account.
     if (!IS_REMOTE && state.remoteLinked !== null) {
-      addSection("Remote Control");
+      section(target === addPopover ? "Remote control" : "Remote Control");
       if (state.remoteLinked) {
-        addGearItem(`<span class="gear-lead">${ICON.smartphone}<span>Continue remotely</span></span>`, () => {
+        item(`<span class="gear-lead">${ICON.smartphone}<span>Continue remotely</span></span>`, () => {
           vscode.postMessage({ type: "openRemotePortal", withHint: true });
           closePopovers();
         });
-        addGearItem(`<span class="gear-lead">${ICON.user}<span>Your account</span></span>`, () => {
+        item(`<span class="gear-lead">${ICON.user}<span>Your account</span></span>`, () => {
           vscode.postMessage({ type: "openRemotePortal" });
           closePopovers();
         });
       } else {
-        addGearItem(`<span class="gear-lead">${ICON.user}<span>Sign in (link this device)</span></span>`, () => {
+        item(`<span class="gear-lead">${ICON.user}<span>Sign in (link this device)</span></span>`, () => {
           vscode.postMessage({ type: "remoteSignIn" });
           closePopovers();
         });
-        addGearItem(`<span class="gear-lead">${ICON.info}<span>How it works</span></span>`, () => {
+        item(`<span class="gear-lead">${ICON.info}<span>How it works</span></span>`, () => {
           closePopovers();
           showRemoteExplainer();
         });
       }
     }
 
-    addSection("Settings");
-    addGearItem(`<span class="gear-lead">${ICON.gear}<span>Settings</span></span>`, () => openAllSettings());
+    section("Settings");
+    item(`<span class="gear-lead">${ICON.gear}<span>Settings</span></span>`, () => {
+      openSettingsCategory(undefined, target === addPopover ? addBtn : appSettingsButton());
+    });
     // Older hosts have no provider account frame; retain their existing action.
-    if (!IS_REMOTE && !state.providersKnown) {
-      addGearItem("<span>Log out</span>", () => {
+    if (target === gearPopover && !IS_REMOTE && !state.providersKnown) {
+      item("<span>Log out</span>", () => {
         vscode.postMessage({ type: "logout" });
         closePopovers();
       });
@@ -3825,9 +3763,18 @@
   }
 
   function renderModelPicker() {
+    const scroll = gearPopover.querySelector(".model-picker-list")?.scrollTop || 0;
     state.gearView = "model";
     gearPopover.innerHTML = "";
-    addGearItem('<span class="popover-back">← Model</span>', renderGearMain);
+    gearPopover.classList.add("model-picker");
+    gearPopover.setAttribute("role", "dialog");
+    gearPopover.setAttribute("aria-label", "Model and effort");
+    renderEffortStrip();
+    const list = document.createElement("div");
+    list.className = "model-picker-list";
+    list.setAttribute("role", "radiogroup");
+    list.setAttribute("aria-label", "Model");
+    gearPopover.appendChild(list);
     let models = state.availableModels.length
       ? state.availableModels
       : [{ modelId: state.currentModelId || "grok-build", name: state.currentModelId || "grok-build" }];
@@ -3852,7 +3799,7 @@
       const heading = document.createElement("div");
       heading.className = "popover-section model-provider-heading";
       heading.textContent = providerDisplayName(provider);
-      gearPopover.appendChild(heading);
+      list.appendChild(heading);
     };
     // A provider that cannot answer is simply not in this list. It used to get
     // a heading and a "Sign in to load models" row, which put an agent you
@@ -3863,7 +3810,8 @@
     const renderModelRow = (m) => {
       const modelProvider = m.provider || state.activeProvider;
       addProviderHeading(modelProvider);
-      const el = document.createElement("div");
+      const el = document.createElement("button");
+      el.type = "button";
       const active = m.modelId === state.currentModelId && (!m.provider || m.provider === state.activeProvider);
       const label = modelPickerLabel(m) || m.modelId;
       const glyphId = providerLogoId(modelProvider);
@@ -3876,27 +3824,44 @@
         `</span>` +
         (active ? '<span class="popover-check">✓</span>' : "");
       el.title = m.modelId;
+      el.disabled = modelSelectionLocked();
+      el.setAttribute("role", "radio");
+      el.setAttribute("aria-checked", String(active));
       el.onclick = (e) => {
         e.stopPropagation();
+        if (modelSelectionLocked()) return;
         const message = { type: "setModel", modelId: m.modelId };
         if (state.providersKnown && m.provider) message.provider = m.provider;
         vscode.postMessage(message);
         closePopovers();
       };
-      gearPopover.appendChild(el);
+      list.appendChild(el);
     };
     const addManageProvidersRow = () => {
+      // Worktree actions keep their existing home, outside the model scroller.
+      renderGearConversation();
+      const footer = document.createElement("div");
+      footer.className = "model-picker-footer";
+      gearPopover.appendChild(footer);
       const sep = document.createElement("div");
       sep.className = "popover-sep";
-      gearPopover.appendChild(sep);
-      const el = document.createElement("div");
+      footer.appendChild(sep);
+      const el = document.createElement("button");
+      el.type = "button";
       el.className = "toolbar-popover-item model-manage-providers";
       el.innerHTML = `<span class="gear-lead">${ICON.settings2}<span>Manage providers</span></span>`;
       el.onclick = (e) => {
         e.stopPropagation();
-        openSettingsCategory("providers");
+        openSettingsCategory("providers", gearBtn);
       };
-      gearPopover.appendChild(el);
+      footer.appendChild(el);
+      // Pre-provider-state hosts still need their original account action.
+      if (!IS_REMOTE && !state.providersKnown) {
+        addGearItem("<span>Log out</span>", () => {
+          vscode.postMessage({ type: "logout" });
+          closePopovers();
+        }, footer);
+      }
     };
     if (grouped) {
       for (const provider of ["grok", "codex", "claude"]) {
@@ -3905,10 +3870,12 @@
         }
       }
       addManageProvidersRow();
+      list.scrollTop = scroll;
       return;
     }
     for (const m of models) renderModelRow(m);
     addManageProvidersRow();
+    list.scrollTop = scroll;
   }
 
   /** The trigger for the surface currently being rendered. */
@@ -3957,8 +3924,7 @@
 
   function openGearPopover(fromBtn) {
     gearPopover.classList.remove("popover-centered");
-    // Which button was pressed decides which sections render. Without a rail
-    // gear both surfaces collapse into the composer one, so this is inert there.
+    // The chip opens model + effort directly; the rail gear keeps the app menu.
     const surface = fromBtn && fromBtn.id === "rail-gear-btn" ? "rail" : "composer";
     // Clicking the button that is already showing closes it — clicking the OTHER
     // one switches to it. Closing on any open popover made the two surfaces
@@ -3975,6 +3941,7 @@
     renderGearMain();
     positionGearPopover(fromBtn || activeGearButton());
     gearPopover.hidden = false;
+    gearBtn.setAttribute("aria-expanded", String(surface === "composer"));
   }
 
   // Welcome "about" link → Settings → About. VS Code opens the editor tab;
@@ -4340,24 +4307,164 @@
   }
 
   /**
-   * Split the settings surfaces rather than moving one button.
-   *
-   * The composer button NEVER disappears — Model and Effort is the highest-
-   * frequency control in the app and belongs next to the thing you type in.
-   * What changes is what it holds, and its icon follows that: sliders
-   * (settings-2) once the rail owns the app settings, the gear when it owns
-   * everything (VS Code, which has no rail). Derived from `railGearLive()`,
-   * not from a host flag.
+   * The composer button NEVER disappears — Model and Effort belongs beside
+   * the thing you type in. It stays in place and stops being anonymous: the
+   * chip names its contents. The rail still owns the app menu where present.
    */
   function syncGearPlacement() {
     const railGear = ensureRailGear();
     ensureRailResizer();
-    const split = railGearLive();
     gearBtn.hidden = false;
-    gearBtn.innerHTML = split ? ICON.settings2 : ICON.gear;
-    gearBtn.title = split ? "Model, effort and session" : "Settings";
+    syncModelChip();
+    if (railGear) railGear.hidden = !railGearLive();
+  }
+
+  function currentModel() {
+    return state.availableModels.find((m) => m.modelId === state.currentModelId
+      && (!m.provider || m.provider === state.activeProvider));
+  }
+
+  function modelSelectionLocked() {
+    return state.busy || !currentModel() || (state.providersKnown
+      && !state.providers.some((p) => p.connected && !p.needsLogin));
+  }
+
+  function effectiveEffort() {
+    const model = currentModel();
+    const levels = effortLevelsForModel();
+    // Metadata is the fallback, never an invented provider default. Old hosts
+    // can omit it; the strip then says Default without claiming a scale stop.
+    if (levels.includes(state.effort)) return state.effort;
+    return levels.includes(model?.reasoningEffort) ? model.reasoningEffort : "";
+  }
+
+  function effortLabel(level) { return level === "xhigh" ? "Extra high" : capitalize(level); }
+
+  function syncModelChip() {
+    const unavailable = state.providersKnown && !state.providers.some((p) => p.connected && !p.needsLogin);
+    const name = unavailable ? "Models unavailable" : currentModel()
+      ? modelDisplayName(state.currentModelId, state.availableModels.filter((m) => !m.provider || m.provider === state.activeProvider))
+      : "Loading…";
+    const effort = currentModel() && !unavailable ? effortLabel(effectiveEffort()) : "";
+    gearBtn.replaceChildren(makeProviderGlyph(state.activeProvider));
+    const model = document.createElement("span");
+    model.className = "model-chip-name";
+    model.textContent = name;
+    const word = document.createElement("span");
+    word.className = "model-chip-effort";
+    word.textContent = effort;
+    const chevron = document.createElement("span");
+    chevron.className = "model-chip-chevron";
+    chevron.innerHTML = ICON.chevronDown;
+    gearBtn.append(model, word, chevron);
+    gearBtn.disabled = false; // Selection can lock; provider recovery cannot.
+    gearBtn.title = [name, effort, "Model and effort"].filter(Boolean).join(" · ")
+      + (modelSelectionLocked() ? " — selection available once the session is ready" : "");
     gearBtn.setAttribute("aria-label", gearBtn.title);
-    if (railGear) railGear.hidden = !split;
+  }
+
+  function refreshModelControls() {
+    syncModelChip();
+    if (!gearPopover.hidden && state.gearView === "model") renderModelPicker();
+  }
+
+  let effortNoticeTimer;
+  function announceEffortChange() {
+    let notice = document.querySelector(".composer-effort-notice");
+    if (!notice) {
+      notice = document.createElement("div");
+      notice.className = "composer-effort-notice";
+      notice.setAttribute("role", "status");
+      gearBtn.closest(".composer").appendChild(notice);
+    }
+    const name = modelDisplayName(state.currentModelId, state.availableModels);
+    const level = effectiveEffort();
+    notice.textContent = `${name} uses ${level ? effortLabel(level) : "its default"} effort.`;
+    clearTimeout(effortNoticeTimer);
+    effortNoticeTimer = setTimeout(() => { notice.textContent = ""; }, 4000);
+  }
+
+  function renderEffortStrip() {
+    const box = document.createElement("div");
+    box.className = "model-effort-strip";
+    const levels = currentModel() ? effortLevelsForModel() : [];
+    const locked = modelSelectionLocked();
+    const select = (level) => {
+      if (modelSelectionLocked()) return;
+      state.effort = level;
+      // Reset must not reuse metadata that represents a previous override.
+      if (!level && currentModel()) currentModel().reasoningEffort = undefined;
+      vscode.postMessage({ type: "setEffort", level });
+      syncModelChip();
+      update();
+    };
+    const header = document.createElement("div");
+    header.className = "effort-strip-header";
+    const label = document.createElement("span");
+    label.textContent = "Effort";
+    const value = document.createElement("strong");
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "effort-reset";
+    reset.textContent = "Reset";
+    reset.title = "Reset to the provider default";
+    reset.disabled = locked;
+    reset.onclick = (e) => { e.stopPropagation(); select(""); };
+    header.append(label, value, reset);
+    const track = document.createElement("div");
+    track.className = "effort-strip-track";
+    track.setAttribute("role", "radiogroup");
+    track.setAttribute("aria-label", "Reasoning effort");
+    track.style.setProperty("--n", String(Math.max(1, levels.length)));
+    track.innerHTML = '<span class="effort-strip-rail"></span><span class="effort-strip-fill"></span>';
+    const tip = document.createElement("div");
+    tip.className = "effort-strip-tip";
+    const stops = levels.map((level, index) => {
+      const stop = document.createElement("button");
+      stop.type = "button";
+      stop.className = "effort-strip-stop";
+      stop.dataset.effort = level;
+      stop.setAttribute("role", "radio");
+      stop.setAttribute("aria-label", effortLabel(level));
+      stop.title = EFFORT_TOOLTIPS[level] || effortLabel(level);
+      stop.disabled = locked;
+      stop.innerHTML = "<i></i>";
+      stop.onclick = (e) => { e.stopPropagation(); select(level); };
+      stop.onkeydown = (e) => {
+        const delta = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1
+          : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+        const next = e.key === "Home" ? 0 : e.key === "End" ? levels.length - 1
+          : delta ? (index + delta + levels.length) % levels.length : -1;
+        if (next < 0) return;
+        e.preventDefault(); e.stopPropagation();
+        select(levels[next]); stops[next].focus();
+      };
+      track.appendChild(stop);
+      return stop;
+    });
+    const update = () => {
+      const level = effectiveEffort();
+      const index = levels.indexOf(level);
+      const fraction = Math.max(0, index) / Math.max(1, levels.length - 1);
+      track.style.setProperty("--f", String(fraction));
+      // Interpolate at the same positions and in the same colour space as
+      // the strip, so a knob between palette anchors matches its ramp slice.
+      const anchors = [0, .38, .7, 1];
+      const segment = fraction <= .38 ? 0 : fraction <= .7 ? 1 : 2;
+      const mix = (fraction - anchors[segment]) / (anchors[segment + 1] - anchors[segment]) * 100;
+      track.style.setProperty("--knob", `color-mix(in srgb, var(--e${segment + 1}), var(--e${segment + 2}) ${mix}%)`);
+      stops.forEach((stop, i) => {
+        stop.classList.toggle("current", i === index);
+        stop.classList.toggle("past", i < index);
+        stop.setAttribute("aria-checked", String(i === index));
+        stop.tabIndex = i === Math.max(0, index) ? 0 : -1;
+      });
+      value.textContent = !currentModel() ? "Loading…" : level ? effortLabel(level) : "Default";
+      tip.textContent = EFFORT_TOOLTIPS[level] || (level ? effortLabel(level) : "Uses the provider default");
+    };
+    update();
+    box.append(header, track, tip);
+    gearPopover.appendChild(box);
   }
 
   function openModePopover() {
@@ -4403,9 +4510,20 @@
   function openAddPopover() {
     if (!addPopover.hidden) { closePopovers(); return; }
     closePopovers();
+    renderAddPopover();
+    positionPopover(addPopover, addBtn);
+    addPopover.hidden = false;
+  }
+
+  function renderAddPopover() {
     addPopover.innerHTML = "";
+    const ownsApp = !railGearLive() && !IS_REMOTE;
+    if (ownsApp) addSection("Attach", addPopover);
     const item = document.createElement("div");
     item.className = "toolbar-popover-item";
+    // Relay upload adapters insert their document row immediately after this
+    // marker, never after the first generic action in a mixed menu.
+    item.dataset.uploadRow = "photo";
     item.innerHTML = `<span class="add-item-icon">${ICON.upload}</span><span>Upload from computer</span>`;
     item.onclick = (e) => {
       e.stopPropagation();
@@ -4413,8 +4531,7 @@
       closePopovers();
     };
     addPopover.appendChild(item);
-    positionPopover(addPopover, addBtn);
-    addPopover.hidden = false;
+    if (ownsApp) renderGearApp(addPopover);
   }
 
   // Dashboard dot in the history dropdown. Gray (the `none` default) at rest; the
@@ -14931,6 +15048,12 @@
 
   // ---------- donut ----------
 
+  function contextFullnessColor(pct) {
+    return pct > 90 ? "var(--vscode-charts-red, #f48771)"
+      : pct > 70 ? "var(--vscode-charts-yellow, #d7ba7d)"
+      : "var(--vscode-charts-green, #4ec9b0)";
+  }
+
   function updateDonut(used) {
     // Remember the last usage so a later redraw (e.g. the context window changing
     // when the model switches) keeps the same "used" and just rescales the max.
@@ -14941,10 +15064,7 @@
     const circumference = 2 * Math.PI * 6; // must match the donut circles' r in getHtml
     const arc = (pct / 100) * circumference;
     donutArc.setAttribute("stroke-dasharray", `${arc} ${circumference}`);
-    let color = "var(--vscode-charts-green, #4ec9b0)";
-    if (pct > 90) color = "var(--vscode-charts-red, #f48771)";
-    else if (pct > 70) color = "var(--vscode-charts-yellow, #d7ba7d)";
-    donutArc.setAttribute("stroke", color);
+    donutArc.setAttribute("stroke", contextFullnessColor(pct));
     donutLabel.textContent = `${toK(used)}/${toK(max)}`;
     donutLabel.title = `${used.toLocaleString()} / ${max.toLocaleString()} tokens`;
     donutEl.title = `Context usage — ${used.toLocaleString()} / ${max.toLocaleString()} tokens`;
@@ -16794,6 +16914,12 @@
       case "initialState":
         state.useCtrlEnter = msg.useCtrlEnter;
         state.effort = msg.effort || "";
+        // Existing initialState is the acknowledgement, including refusal or
+        // cancelled restart. Do not replay session: it clears context details.
+        if (currentModel() && effortLevelsForModel().includes(state.effort)) {
+          currentModel().reasoningEffort = state.effort;
+        }
+        refreshModelControls();
         state.cwd = msg.cwd || "";
         state.extVersion = msg.extVersion || "";
         // Field presence, not a version check: an older host sends neither, and
@@ -17001,6 +17127,8 @@
           }
         }
         if (!gearPopover.hidden && state.gearView === "main") renderGearMain();
+        if (!addPopover.hidden) renderAddPopover();
+        refreshModelControls();
         if (!historyPopover.hidden) renderSessionRows();
         renderRail();
         break;
@@ -17064,6 +17192,8 @@
         // the case this guards): repaint so the section appears rather than
         // waiting for the next open.
         if (!gearPopover.hidden && state.gearView === "main") renderGearMain();
+        if (!addPopover.hidden) renderAddPopover();
+        refreshModelControls();
         break;
       case "steerByDefault":
         // Live toggle (grok.steerByDefault). Pure policy for the next send —
@@ -17154,6 +17284,8 @@
         applyExpandCommandOutputs();
         syncChangesAvailability();
         if (!gearPopover.hidden && state.gearView === "main") renderGearMain();
+        if (!addPopover.hidden) renderAddPopover();
+        refreshModelControls();
         syncGearPlacement();
         break;
       case "fontScale":
@@ -17350,6 +17482,8 @@
         if (state.railTransition?.kind === "new") renderRail();
         state.isWorktree = !!msg.worktree; // gates the gear Apply/Remove worktree items
         state.availableModels = msg.models || [];
+        if (currentModel()?.reasoningEffort) state.effort = currentModel().reasoningEffort;
+        refreshModelControls();
         const m = state.availableModels.find((x) => x.modelId === msg.currentModelId && (!x.provider || x.provider === state.activeProvider));
         if (m?.totalContextTokens) state.contextWindow = m.totalContextTokens;
         state.contextBreakdown = null;
@@ -17398,7 +17532,13 @@
         break;
       }
       case "modelChanged": {
+        const previousEffort = effectiveEffort();
         state.currentModelId = msg.modelId;
+        if (!effortLevelsForModel().includes(state.effort)) {
+          state.effort = currentModel()?.reasoningEffort || "";
+        }
+        refreshModelControls();
+        if (previousEffort && previousEffort !== effectiveEffort()) announceEffortChange();
         // The context window is model-specific (grok-build 512K vs Composer 200K).
         // The initial `session` event carries grok's *default* model, so when we
         // switch (e.g. to the configured default) recompute the max — otherwise the
@@ -18299,6 +18439,7 @@
         }
         // Refresh the gear popover's model/effort lock state if it's open.
         if (!gearPopover.hidden) renderGearMain();
+        syncModelChip();
         break;
       case "summarizing": {
         clearWelcome();
@@ -18838,6 +18979,20 @@
   if (railChromeBeforeCatalog()) renderRail();
   modeBtn.onclick = (e) => { e.stopPropagation(); if (state.busyLocked) return; openModePopover(); };
   gearBtn.onclick = (e) => { e.stopPropagation(); openGearPopover(); };
+  gearBtn.onkeydown = (e) => {
+    if (e.key === "Escape" && !gearPopover.hidden && state.gearView === "model") {
+      e.preventDefault(); e.stopPropagation(); closePopovers();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault(); e.stopPropagation();
+      if (gearPopover.hidden || state.gearSurface !== "composer") openGearPopover();
+      gearPopover.querySelector('.effort-strip-stop[tabindex="0"]:not(:disabled), .model-manage-providers')?.focus();
+    }
+  };
+  gearPopover.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || state.gearView !== "model") return;
+    e.preventDefault(); e.stopPropagation();
+    closePopovers(); gearBtn.focus();
+  });
 
   // ---------- provider config files ----------
   // Desktop/remote Settings mount this panel; standalone Settings opens the host editor.

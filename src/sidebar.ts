@@ -11212,6 +11212,16 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
         this.codexInstallAbort?.abort(new Error("Installation cancelled."));
         break;
       case "setEffort": {
+        // Deliberately NOT acknowledged back to the renderer. The chip sets the
+        // level optimistically and reconciles on the next `initialState` —
+        // exactly as the effort dots did before it. Emitting `initialState` as
+        // an acknowledgement looks free and is not: `emit` buffers it into the
+        // session replay AND fans it to every remote holding the conversation,
+        // and that frame is action-shaped (`restoreRememberedRemoteSession`
+        // posts `resumeSession` from it), so a phone changing effort would clear
+        // and replay its own transcript and drop an in-flight recording. The
+        // residue we accept instead: dismiss the restart prompt and the chip
+        // shows the level you picked until the conversation next reloads.
         if (session.priming) break; // ignore changes fired mid-session-start (see switchModel)
         const newLevel = msg.level;
 
@@ -20521,12 +20531,12 @@ ${fileShellOpen}
       <div class="composer-input-wrap">
         <div id="input-highlight" class="input-highlight" aria-hidden="true" dir="auto"></div>
         <textarea id="input" placeholder="Ask Grok..." rows="2" dir="auto"></textarea>
-        <button id="mic-btn" class="mic-btn" title="Voice control"></button>
       </div>
       <div class="composer-toolbar">
         <div class="toolbar-left">
           <button id="add-btn" class="icon-btn" title="Add context"></button>
-          <button id="gear-btn" class="icon-btn" title="Settings"></button>
+          <button id="mic-btn" class="icon-btn mic-btn" title="Voice control"></button>
+          <button id="gear-btn" class="toolbar-btn model-chip" title="Model and effort"></button>
           <div class="context-donut" id="donut" title="Context usage">
             <svg width="16" height="16" viewBox="0 0 16 16">
               <circle cx="8" cy="8" r="6" fill="none" stroke="var(--vscode-editorWidget-border,#444)" stroke-width="3"/>

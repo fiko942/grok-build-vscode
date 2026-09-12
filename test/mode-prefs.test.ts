@@ -47,7 +47,11 @@ describe("effort picker persistence", () => {
     session.provider = provider;
     session.cwd = "/project";
     session.hasHistory = true;
-    session.client = { currentModelSupportsEffort: () => true, setReasoningEffort: vi.fn(async () => true) } as any;
+    session.client = {
+      currentReasoningEffort: "high",
+      currentModelSupportsEffort: () => true,
+      setReasoningEffort: vi.fn(async (level) => { session.client!.currentReasoningEffort = level; return true; }),
+    } as any;
     const values: Record<string, unknown> = {};
     const cfg = { get: () => "high", update: vi.fn(async () => {}) };
     sidebar.focused = session;
@@ -57,6 +61,8 @@ describe("effort picker persistence", () => {
       update: vi.fn(async (key: string, value: unknown) => { values[key] = value; }),
     };
     sidebar.workspaceRoot = () => "/project";
+    sidebar.context = { extensionVersion: "test" };
+    sidebar.emit = vi.fn();
     sidebar.startSession = vi.fn();
     sidebar.restartSession = vi.fn();
     sidebar.discardAdapterEmptySession = vi.fn();
@@ -76,6 +82,12 @@ describe("effort picker persistence", () => {
       expect(values["grok.defaultEffortByProvider"]).toEqual({ [provider]: "low" });
     }
     expect(sidebar.restartSession).not.toHaveBeenCalled();
+    // Nothing is emitted back. `emit` buffers into the session replay and fans
+    // to every remote holder, and `initialState` is action-shaped there — a
+    // phone reads it as "restore the remembered conversation" and reloads its
+    // own transcript. The chip is optimistic and reconciles on the next real
+    // `initialState`, which is what the effort dots did before it.
+    expect(sidebar.emit).not.toHaveBeenCalled();
   });
 
   it.each([false, true])("remembers an adapter reset for the restart path (empty=%s)", async (empty) => {
@@ -95,5 +107,34 @@ describe("effort picker persistence", () => {
     await sidebar.onMessage({ type: "setEffort", level: "low" }, "local");
     expect(sidebar.state.update).not.toHaveBeenCalled();
     expect(cfg.update).not.toHaveBeenCalled();
+    expect(sidebar.emit).not.toHaveBeenCalled();
+  });
+
+  it.each(["grok", "claude", "codex"] as const)("warns a remote %s effort change and sends it no session frame", async (provider) => {
+    const { sidebar, session } = picker(provider);
+    session.client!.currentModelSupportsEffort = () => false;
+    sidebar.remoteClients = { active: () => session, cwd: () => "/project" };
+    sidebar.captureRemoteRequester = () => ({ clientId: "phone", session });
+    sidebar.reportRequester = vi.fn();
+    await sidebar.onMessage({ type: "setEffort", level: "low" }, "remote", "phone");
+    expect(sidebar.reportRequester).toHaveBeenCalled();
+    expect(sidebar.restartSession).not.toHaveBeenCalled();
+    // The refusal is a warning, not a frame. Anything sent through `emit` here
+    // reaches the phone AND its replay buffer; `initialState` in particular
+    // makes the phone re-resume, clearing and replaying its own transcript.
+    expect(sidebar.emit).not.toHaveBeenCalled();
+  });
+
+  it("ignores a change fired mid-session-start, and a dismissed reset persists nothing", async () => {
+    const { sidebar, session, cfg } = picker("grok");
+    session.priming = true;
+    await sidebar.onMessage({ type: "setEffort", level: "low" }, "local");
+    expect(session.client!.setReasoningEffort).not.toHaveBeenCalled();
+    session.priming = false;
+    sidebar.pickRestartMode.mockResolvedValue(undefined);
+    await sidebar.onMessage({ type: "setEffort", level: "" }, "local");
+    expect(sidebar.restartSession).not.toHaveBeenCalled();
+    expect(cfg.update).not.toHaveBeenCalled();
+    expect(sidebar.emit).not.toHaveBeenCalled();
   });
 });

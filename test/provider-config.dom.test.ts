@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bootWebview, click, dispatch, type Harness, type Posted } from "./webview-harness";
+import { openAppSettings, bootWebview, click, dispatch, type Harness, type Posted } from "./webview-harness";
 
 async function settle() {
   await Promise.resolve();
@@ -42,11 +42,7 @@ function session(h: Harness, provider = "grok", id = "session-1") {
 
 function settings(h: Harness) {
   const { surface, capabilities } = mounts.get(h)!;
-  click(h.window, (h.doc.getElementById("rail-gear-btn") || h.doc.getElementById("gear-btn"))!);
-  expect(h.doc.getElementById("gear-popover")?.textContent).not.toContain("Provider config files");
-  const entry = [...h.doc.querySelectorAll(".toolbar-popover-item")].find((el) => el.textContent === "Settings");
-  expect(entry).toBeTruthy();
-  click(h.window, entry!);
+  openAppSettings(h.window, h.doc);
   if (surface === "vscode") {
     expect(h.posted).toContainEqual({ type: "openSettingsSurface" });
     // The separate webview loads settings.js without chat.js or an onLocal callback.

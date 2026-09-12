@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { bootWebview, click, dispatch, press } from "./webview-harness";
+import { openAppSettings, bootWebview, click, dispatch, press } from "./webview-harness";
 
 const sidebarSrc = readFileSync(new URL("../src/sidebar.ts", import.meta.url), "utf8");
 
@@ -60,10 +60,7 @@ const withRailMount = (w: any) => {
 
 /** Open the gear, then the Settings overlay where Text size lives. */
 const openSettingsGeneral = (window: any, doc: Document) => {
-  click(window, (doc.getElementById("rail-gear-btn") || doc.getElementById("gear-btn"))!);
-  const entry = [...doc.querySelectorAll("#gear-popover .toolbar-popover-item")]
-    .find((el) => /(^|\s)Settings$/.test((el.textContent || "").replace(/\s+/g, " ").trim()));
-  if (entry) click(window, entry as HTMLElement);
+  openAppSettings(window, doc);
 };
 
 const fontSlider = (doc: Document) =>
@@ -885,10 +882,7 @@ describe("AFK Pilot shared webview controls", () => {
       usesTouch: false,
     });
 
-    click(window, doc.getElementById("gear-btn")!);
-    const settings = [...doc.querySelectorAll("#gear-popover .toolbar-popover-item")]
-      .find((el) => /(^|\s)Settings$/.test((el.textContent || "").replace(/\s+/g, " ").trim()))!;
-    click(window, settings);
+    openAppSettings(window, doc);
     clickSettingsNav(window, doc, "Voice");
     const toggle = doc.querySelector('[data-id="readRepliesAloud"] .settings-switch') as HTMLElement;
     expect(toggle).toBeTruthy();
@@ -958,10 +952,7 @@ describe("AFK Pilot shared webview controls", () => {
       },
     });
     dispatch(window, { type: "initialState", readRepliesAloud: false });
-    click(window, doc.getElementById("gear-btn")!);
-    const settings = [...doc.querySelectorAll("#gear-popover .toolbar-popover-item")]
-      .find((el) => /(^|\s)Settings$/.test((el.textContent || "").replace(/\s+/g, " ").trim()))!;
-    click(window, settings);
+    openAppSettings(window, doc);
     clickSettingsNav(window, doc, "Voice");
     const summarize = doc.querySelector('[data-id="summarizeRepliesAloud"]') as HTMLElement;
     expect(summarize.querySelector(".settings-switch.on")).not.toBeNull();

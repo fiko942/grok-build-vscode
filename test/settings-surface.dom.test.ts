@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { connectorViews, CONNECTOR_UNAVAILABLE_MESSAGE, TIER1_CONNECTORS } from "../src/mcp-connectors";
 import { parseWebviewMsg } from "../src/desktop/webview-msg-validate";
-import { bootWebview, click, dispatch } from "./webview-harness";
+import { openAppSettings, bootWebview, click, dispatch } from "./webview-harness";
 
 const settingsSrc = readFileSync(
   fileURLToPath(new URL("../media/settings.js", import.meta.url)),
@@ -101,12 +101,7 @@ function seedChat(h: ReturnType<typeof bootWebview>, extra: Record<string, unkno
 }
 
 function openSettings(h: ReturnType<typeof bootWebview>) {
-  const gear = h.doc.getElementById("rail-gear-btn") || h.doc.getElementById("gear-btn");
-  click(h.window, gear!);
-  const item = [...h.doc.querySelectorAll("#gear-popover .toolbar-popover-item")]
-    .find((el) => /(^|\s)Settings$/.test((el.textContent || "").replace(/\s+/g, " ").trim()));
-  expect(item).toBeTruthy();
-  click(h.window, item!);
+  openAppSettings(h.window, h.doc);
 }
 
 function settingsNav(h: ReturnType<typeof bootWebview>) {
@@ -454,8 +449,8 @@ describe("dialogs above renderer layers", () => {
   it.each(["Escape", "Close", "backdrop", "FAQ"])("clears the explainer marker through %s", (exit) => {
     const h = bootLayers("settings", false);
     dispatch(h.window, { type: "remoteStatus", linked: false });
-    click(h.window, h.doc.getElementById("gear-btn")!);
-    click(h.window, [...h.doc.querySelectorAll("#gear-popover .toolbar-popover-item")].find((el) => el.textContent?.includes("How it works"))!);
+    click(h.window, h.doc.getElementById("add-btn")!);
+    click(h.window, [...h.doc.querySelectorAll("#add-popover .toolbar-popover-item")].find((el) => el.textContent?.includes("How it works"))!);
     blocked(h);
     if (exit === "Escape") keydown(h.window, { key: "Escape" });
     else click(h.window, h.doc.querySelector(exit === "Close" ? ".remote-explainer-close"
@@ -667,8 +662,8 @@ describe("settings overlay (chat.js)", () => {
   it("replaces the legacy gear panels with a single Settings entry", () => {
     const h = bootWebview();
     seedChat(h);
-    click(h.window, h.doc.getElementById("gear-btn")!);
-    const labels = gearLabels(h);
+    click(h.window, h.doc.getElementById("add-btn")!);
+    const labels = [...h.doc.querySelectorAll("#add-popover .toolbar-popover-item")].map((el) => el.textContent || "");
     expect(labels.some((l) => l === "Settings" || l.endsWith("Settings"))).toBe(true);
     expect(labels.some((l) => l === "All settings")).toBe(false);
     expect(labels.some((l) => /Config & debug/.test(l))).toBe(false);
@@ -1507,9 +1502,14 @@ describe("settings overlay (chat.js)", () => {
   });
 
   it("hides healthy provider rows in the gear and shows them when attention is needed", () => {
-    const h = bootWebview();
+    const h = bootWebview({ beforeScripts: (w) => {
+      const rail = w.document.createElement("aside"); rail.id = "projects-rail";
+      rail.innerHTML = '<div id="rail-scroll"></div><div class="rail-foot"></div>';
+      w.document.body.appendChild(rail);
+    } });
+    dispatch(h.window, { type: "repos", entries: [], selectedCwd: "/w", activeCwd: "/w" });
     seedChat(h);
-    click(h.window, h.doc.getElementById("gear-btn")!);
+    click(h.window, h.doc.getElementById("rail-gear-btn")!);
     expect(gearLabels(h).some((l) => /Grok/.test(l) && /Sign out/.test(l))).toBe(false);
 
     dispatch(h.window, {
@@ -1519,8 +1519,8 @@ describe("settings overlay (chat.js)", () => {
         { id: "codex", connected: false },
       ],
     });
-    click(h.window, h.doc.getElementById("gear-btn")!);
-    click(h.window, h.doc.getElementById("gear-btn")!);
+    click(h.window, h.doc.getElementById("rail-gear-btn")!);
+    click(h.window, h.doc.getElementById("rail-gear-btn")!);
     expect(gearLabels(h).join(" ")).toMatch(/Grok/);
     expect(gearLabels(h).join(" ")).toMatch(/Connect/);
 
@@ -1531,8 +1531,8 @@ describe("settings overlay (chat.js)", () => {
         { id: "codex", connected: true },
       ],
     });
-    click(h.window, h.doc.getElementById("gear-btn")!);
-    click(h.window, h.doc.getElementById("gear-btn")!);
+    click(h.window, h.doc.getElementById("rail-gear-btn")!);
+    click(h.window, h.doc.getElementById("rail-gear-btn")!);
     // Codex is healthy here, so SOMETHING can answer and the gear stops
     // carrying accounts entirely — Settings → Providers owns them (owner,
     // 2026-08-17). Previously a single lapsed account kept a half-broken
@@ -1547,8 +1547,8 @@ describe("settings overlay (chat.js)", () => {
         { id: "codex", connected: true },
       ],
     });
-    click(h.window, h.doc.getElementById("gear-btn")!);
-    click(h.window, h.doc.getElementById("gear-btn")!);
+    click(h.window, h.doc.getElementById("rail-gear-btn")!);
+    click(h.window, h.doc.getElementById("rail-gear-btn")!);
     expect(gearLabels(h).some((l) => /Sign out/.test(l))).toBe(false);
   });
 
@@ -1740,7 +1740,7 @@ describe("settings overlay keyboard containment", () => {
     expect(h.doc.getElementById("settings-overlay")).toBeTruthy();
     keydown(h.window, { key: "Escape" });
     expect(h.doc.getElementById("settings-overlay")).toBeNull();
-    expect(h.doc.activeElement).toBe(h.doc.getElementById("gear-btn"));
+    expect(h.doc.activeElement).toBe(h.doc.getElementById("add-btn"));
     expect(h.doc.querySelector("header")?.hasAttribute("inert")).toBe(false);
     expect(h.doc.querySelector("footer")?.getAttribute("data-settings-cover")).toBeNull();
   });
@@ -1764,7 +1764,7 @@ describe("settings overlay keyboard containment", () => {
     expect(header?.hasAttribute("inert") || header?.getAttribute("aria-hidden") === "true").toBe(true);
     click(h.window, back);
     expect(h.doc.getElementById("settings-overlay")).toBeNull();
-    expect(h.doc.activeElement).toBe(h.doc.getElementById("gear-btn"));
+    expect(h.doc.activeElement).toBe(h.doc.getElementById("add-btn"));
     expect(h.doc.querySelector("header")?.hasAttribute("inert")).toBe(false);
   });
 

@@ -391,9 +391,8 @@ describe("one page-local waiting strip", () => {
     click(h.window, mode!);
     expect(latest(h, "setMode").modeId).toBe("yolo");
     click(h.window, h.doc.getElementById("gear-btn")!);
-    click(h.window, h.doc.querySelector(".effort-dot")!);
+    click(h.window, h.doc.querySelector(".effort-strip-stop")!);
     expect(requests(h, "setEffort")).toHaveLength(1);
-    click(h.window, h.doc.querySelector(".model-name-btn")!);
     const model = [...h.doc.querySelectorAll(".toolbar-popover-item")].find((el) => el.getAttribute("title") === "another-model");
     click(h.window, model!);
     expect(requests(h, "setModel")).toHaveLength(1);

@@ -108,7 +108,7 @@ The green/red dot is an **unread badge** — it survives a VS Code restart and c
 <details>
 <summary><strong>Queue or steer</strong> — type while the agent works, without ever interrupting it</summary>
 
-A message you send mid-turn **never cancels** anything. By default it **queues** — a pending block at the end of the chat (Edit / Remove), sent the moment the turn ends; type more and it merges into the same message. Hit **Steer** on it to redirect the agent *now* instead: the text goes straight into the running turn without losing the tool work in flight. Prefer that always? Turn on **Steer by default** (gear → *Config & debug*).
+A message you send mid-turn **never cancels** anything. By default it **queues** — a pending block at the end of the chat (Edit / Remove), sent the moment the turn ends; type more and it merges into the same message. Hit **Steer** on it to redirect the agent *now* instead: the text goes straight into the running turn without losing the tool work in flight. Prefer that always? Turn on **Steer by default** (Settings).
 
 **Grok** and **OpenAI Codex** both take a mid-turn correction; **Claude Code** does not, so there the Steer button never appears and anything you send while it works simply queues. A steer carries your text and the files you attached to that message — images included, where that agent accepts them; where it doesn't, the whole message is queued rather than sent without its pixels, and the chat tells you so. What it leaves out is the ambient editor selection: the running turn already has the version it started with.
 
@@ -119,7 +119,7 @@ A message you send mid-turn **never cancels** anything. By default it **queues**
 <details>
 <summary><strong>Fork conversation</strong> — branch a thread without touching the original</summary>
 
-Gear → *Fork conversation* copies the conversation into a **new session** named `(Fork) <the original's name>` and opens it — try a tangent or a different approach while the original stays **byte-for-byte unchanged** in your history. It branches the conversation, not your code: files on disk are untouched.
+The conversation's ⋯ menu → *Continue in a new chat* → **Use this workspace** copies the conversation into a **new session** named `(Fork) <the original's name>` and opens it — try a tangent or a different approach while the original stays **byte-for-byte unchanged** in your history. It branches the conversation, not your code: files on disk are untouched.
 
 ![Fork conversation in the gear menu](docs/screenshots/fork.png)
 
@@ -128,7 +128,7 @@ Gear → *Fork conversation* copies the conversation into a **new session** name
 <details>
 <summary><strong>Worktree session</strong> — isolate code edits in a git worktree</summary>
 
-**Grok: New Worktree Session** (gear → *New worktree session*, or the Command Palette) creates an isolated git worktree under `~/.grok/worktrees/` and opens a fresh session whose cwd is that checkout — so agent edits don't touch your main tree until you **Apply worktree**. **Remove worktree** deletes the isolated checkout. History rows for worktree sessions show a `WT <label>` badge and reopen with the correct cwd.
+**Grok: New Worktree Session** (the conversation's ⋯ menu → *Continue in a new chat* → **Use a new worktree**, or the Command Palette) creates an isolated git worktree under `~/.grok/worktrees/` and opens a fresh session whose cwd is that checkout — so agent edits don't touch your main tree until you **Apply worktree**. **Remove worktree** deletes the isolated checkout. History rows for worktree sessions show a `WT <label>` badge and reopen with the correct cwd.
 
 </details>
 
@@ -201,7 +201,7 @@ A ` ```mermaid ` block renders as a real diagram via [Mermaid](https://mermaid.j
 <details>
 <summary><strong>Model picker</strong> — switch models live, no restart</summary>
 
-Click the model name in the gear popover. The list comes from your CLI; switching is live in most cases. (A few models belong to a different agent and need a quick restart — the extension detects that and carries your context forward.)
+Click the model chip in the composer to open the model picker. The list comes from your CLI; switching is live in most cases. (A few models belong to a different agent and need a quick restart — the extension detects that and carries your context forward.)
 
 </details>
 
@@ -212,23 +212,21 @@ The host talks **ACP** (JSON-RPC over stdio), not a Grok-specific protocol, so t
 
 **Settings → Connectors** has three sections: apps you connect here (Connect / Disconnect — available to Grok, Codex, and Claude), grok.com connectors that follow your Grok account, and local Grok connectors declared in this machine's config files. Connecting an app is not desk-only: it works from a phone, and on a cloud machine where there is no desk at all. Project-file servers stay off this page. grok.com connectors are edited at [grok.com/connectors](https://grok.com/connectors).
 
-Gear → **Provider config files** opens the file each CLI actually reads — `~/.grok/config.toml`, `~/.codex/config.toml`, `~/.claude/settings.json` — and edits it in place, from a phone as readily as at the desk. Those three are the whole list: the credentials that live beside them are not reachable from here. A CLI reads its config once at startup, so the panel offers to **restart the conversation you have open** after you save, and states the limit rather than hiding it — other sessions already running keep the settings they started with.
+Settings → Providers → **Provider config files** opens the file each CLI actually reads — `~/.grok/config.toml`, `~/.codex/config.toml`, `~/.claude/settings.json` — and edits it in place, from a phone as readily as at the desk. Those three are the whole list: the credentials that live beside them are not reachable from here. A CLI reads its config once at startup, so the panel offers to **restart the conversation you have open** after you save, and states the limit rather than hiding it — other sessions already running keep the settings they started with.
 
 </details>
 
 <details>
 <summary><strong>Reasoning effort</strong> — trade tokens for depth</summary>
 
-Gear → the effort dots next to the model, `none` → `xhigh`. On recent CLIs it applies **live** to the running session; older ones restart, with an optional *Summarize & Restart* that carries context forward.
-
-![Model and reasoning-effort picker in the gear menu](docs/screenshots/effort.png)
+Click the composer model chip, then choose a stop on the effort strip. The available levels follow the selected model. On recent CLIs it applies **live** to the running session; older ones restart, with an optional *Summarize & Restart* that carries context forward.
 
 </details>
 
 <details>
 <summary><strong>Remote Control (AFK Pilot)</strong> — watch and steer your sessions from a phone or any browser</summary>
 
-Gear → *Remote Control* → **Sign in (link this device)** pairs this machine with **[AFK Pilot](https://afkpilot.com)**, a companion web client that mirrors this chat in the browser: follow a running turn, approve permissions, answer questions, and send or steer messages from your phone while away from your desk. **Connecting an agent** works from there too — the CLI's headless sign-in runs on the linked computer and the page shows you the link (and, for Grok and Codex, the short code) to confirm, from the onboarding card or from Settings → Providers. So does **connecting an app** under Settings → Connectors: its sign-in runs on the linked computer too, and the browser lands back on the page instead of a localhost address you would have to copy across. **Grok**, **OpenAI Codex**, and **Claude Code** all sign in this way. Codex needs device-code login enabled on your OpenAI account first, and the flow walks you through it. Claude Code is paste-code: you open the link, sign in, and paste the code Anthropic shows you back into the page. The extension dials **out** to the service — no inbound port, no port forwarding — and **Sign out** unlinks the device again. The mobile view renders the retained chat window in full fidelity (diffs, images, equations, diagrams) with touch-sized controls; on reconnect, the remote snapshot is capped at the last 10 user messages while the VS Code view keeps the complete buffer. Its own **+** picker attaches a photo or a document (`.md`/`.txt`/`.pdf`/`.csv`/`.xlsx`/`.docx`) straight from your phone. You can **dictate** there too — say *"grok send"* to submit hands-free — **rewind or edit a message** you already sent, **connect GitHub** — from Settings or while cloning — and pick a private repository from a list rather than typing its URL, give each browser tab its **own conversation and repository**, and pick up the very conversation VS Code has open, live in both. A conversation follows the tab you are using: asking for it from a second tab moves it there and tells the first, which can take it back with one tap.
+**Sign in (link this device)** under Remote control in the VS Code **+** menu (or the Desktop rail gear) pairs this machine with **[AFK Pilot](https://afkpilot.com)**, a companion web client that mirrors this chat in the browser: follow a running turn, approve permissions, answer questions, and send or steer messages from your phone while away from your desk. **Connecting an agent** works from there too — the CLI's headless sign-in runs on the linked computer and the page shows you the link (and, for Grok and Codex, the short code) to confirm, from the onboarding card or from Settings → Providers. So does **connecting an app** under Settings → Connectors: its sign-in runs on the linked computer too, and the browser lands back on the page instead of a localhost address you would have to copy across. **Grok**, **OpenAI Codex**, and **Claude Code** all sign in this way. Codex needs device-code login enabled on your OpenAI account first, and the flow walks you through it. Claude Code is paste-code: you open the link, sign in, and paste the code Anthropic shows you back into the page. The extension dials **out** to the service — no inbound port, no port forwarding — and **Sign out** unlinks the device again. The mobile view renders the retained chat window in full fidelity (diffs, images, equations, diagrams) with touch-sized controls; on reconnect, the remote snapshot is capped at the last 10 user messages while the VS Code view keeps the complete buffer. Its own **+** picker attaches a photo or a document (`.md`/`.txt`/`.pdf`/`.csv`/`.xlsx`/`.docx`) straight from your phone. You can **dictate** there too — say *"grok send"* to submit hands-free — **rewind or edit a message** you already sent, **connect GitHub** — from Settings or while cloning — and pick a private repository from a list rather than typing its URL, give each browser tab its **own conversation and repository**, and pick up the very conversation VS Code has open, live in both. A conversation follows the tab you are using: asking for it from a second tab moves it there and tells the first, which can take it back with one tap.
 
 A **projects rail** lists every repository with Grok history and its newest conversations, with pinned conversations lifted above them across all projects and a search over both. You can start a session in any project without switching to it first, and rename, delete or clear history from the row — from the ⋯ button or by right-clicking it. Give a project a **colour** and its folder is tinted everywhere the rail appears, including your phone. Projects you put away — and any left untouched for 30 days — fold into **Archived**, and come back on their own the moment you work in one again. Expand Archive to open a conversation or move a project back to Projects on VS Code, desktop, cloud, or your phone. Archiving keeps every project reachable. On a phone the rail is a drawer behind the handle in the header.
 
@@ -257,7 +255,7 @@ While a device is linked, the extension also **keeps the machine awake** (`caffe
 
 **2. Open Grok and sign in.** Press `Ctrl/Cmd+;`. The sidebar **walks you through installing the `grok` CLI and signing in** — one click per step, with your SuperGrok / X Premium+ subscription or an xAI API key. That's the whole setup.
 
-Grok opens in the **Secondary Side Bar** (right side, next to other AI tools). Prefer it elsewhere? Gear → **Config & debug** → **Move view** relocates it to the Panel or Primary Side Bar in one click.
+Grok opens in the **Secondary Side Bar** (right side, next to other AI tools). Prefer it elsewhere? Settings → **Move view** relocates it to the Panel or Primary Side Bar in one click.
 
 > Prefer the terminal, building from source, or installing into several IDEs at once? See **[docs/INSTALL.md](docs/INSTALL.md)**.
 
@@ -287,10 +285,12 @@ Details, build-from-source, and signing notes: **[docs/desktop.md](docs/desktop.
 
 ## Quick start
 
+Open **Settings** from **+** in VS Code or the rail gear in Desktop and AFK Pilot.
+
 1. **Open** Grok — in VS Code: `Ctrl/Cmd+;` (Secondary Side Bar by default); in Desktop: launch the app and add a project folder.
-2. **Type a prompt** and press **Enter**. Grok streams its answer, showing a *Thinking…* line while it reasons. Want the full reasoning inline? Turn on **Show thinking traces** in the gear menu → *Config & debug*.
+2. **Type a prompt** and press **Enter**. Grok streams its answer, showing a *Thinking…* line while it reasons. Want the full reasoning inline? Turn on **Show thinking traces** in Settings.
 3. **Approve actions.** When Grok wants to write a file or run a command it may raise a permission card — preview an edit (native diff in VS Code; in-app viewer on Desktop), then *Allow once / always / Reject*.
-4. **Pick your mode** (Agent / Plan / Auto accept), **model**, and **reasoning effort** from the bottom toolbar and gear menu.
+4. **Pick your mode** (Agent / Plan / Auto accept), **model**, and **reasoning effort** from the bottom toolbar and model chip.
 5. **Resume anytime** — the clock icon lists past sessions for this project.
 
 ---
@@ -312,11 +312,11 @@ Details, build-from-source, and signing notes: **[docs/desktop.md](docs/desktop.
 | `grok.acp.promptAbsoluteTimeoutMs` | `86400000` | Hard wall-clock cap for one turn, even while it is still streaming. `0` disables. Applies to new sessions. |
 | `grok.acp.requestTimeoutMs` | `120000` | Timeout for ACP methods other than `session/prompt` (`initialize`, `session/new`, …). |
 | `grok.useCtrlEnterToSend` | `false` | When true, Enter inserts a newline and Ctrl/Cmd+Enter sends. |
-| `grok.showThinking` | `false` | Show Grok's reasoning (thinking) traces in chat. Off shows a *Thinking…* stand-in. Also toggleable live from gear → Config & debug. |
-| `grok.expandCommandOutputs` | `false` | Expand tool details by default — each shell command's IN/OUT block and each edit's inline diff (useful for auditing Auto-accept sessions). With this setting on, groups containing command or edit details open too; read/explore-only groups stay collapsed, and a lone command outside a group opens its details. Edit rows always show a `+N −M` change count, even when their diff is closed. Toggle live from gear → Config & debug → **Expand tool details**. (Setting key kept for compatibility.) |
+| `grok.showThinking` | `false` | Show Grok's reasoning (thinking) traces in chat. Off shows a *Thinking…* stand-in. Also toggleable live from Settings. |
+| `grok.expandCommandOutputs` | `false` | Expand tool details by default — each shell command's IN/OUT block and each edit's inline diff (useful for auditing Auto-accept sessions). With this setting on, groups containing command or edit details open too; read/explore-only groups stay collapsed, and a lone command outside a group opens its details. Edit rows always show a `+N −M` change count, even when their diff is closed. Toggle live from Settings → **Expand tool details**. (Setting key kept for compatibility.) |
 | `grok.expandDiffCard` | `false` | Open each coding turn's Changed-files card by default. Click a header to toggle that card; changing this preference updates all existing cards. Independent of Expand tool details and Expand/Collapse All. Host-backed on desktop and IDEs; stored per device on a phone or browser. |
-| `grok.steerByDefault` | `false` | Send straight into the running turn instead of queueing. Off: a message sent mid-turn waits and flushes when the turn ends (steer it on demand with the **Steer** button). On: it skips the queue and redirects the agent immediately. Applies wherever that agent takes a mid-turn correction — **Grok** and **OpenAI Codex** do, **Claude Code** does not and keeps queueing. Never cancels the turn or discards work in progress; carries your text and its attachments, not the ambient editor selection. Toggle live from gear → Config & debug → **Steer by default**. |
-| `grok.soundNotifications` | `false` | Play a short tone when Grok finishes a turn or errors — a rising chime for done, a lower tone for errors — but **only when the Grok panel isn't focused**, so it notifies you when you've stepped away. Toggle live from gear → Config & debug → **Sound notifications**. |
+| `grok.steerByDefault` | `false` | Send straight into the running turn instead of queueing. Off: a message sent mid-turn waits and flushes when the turn ends (steer it on demand with the **Steer** button). On: it skips the queue and redirects the agent immediately. Applies wherever that agent takes a mid-turn correction — **Grok** and **OpenAI Codex** do, **Claude Code** does not and keeps queueing. Never cancels the turn or discards work in progress; carries your text and its attachments, not the ambient editor selection. Toggle live from Settings → **Steer by default**. |
+| `grok.soundNotifications` | `false` | Play a short tone when Grok finishes a turn or errors — a rising chime for done, a lower tone for errors — but **only when the Grok panel isn't focused**, so it notifies you when you've stepped away. Toggle live from Settings → **Sound notifications**. |
 | `grok.thumbsFeedback` | `false` | Show thumbs on a finished Grok turn so you can send a rating to SpaceXAI. Off by default. On, thumbs appear only when this Grok session supports feedback — never on Codex or Claude. Toggle from Settings → General → **Thumbs feedback to SpaceXAI**. |
 | `grok.telemetry.enabled` | `true` | Send anonymous, privacy-first usage telemetry (see [Privacy](#privacy)). Also honors VS Code's global `telemetry.telemetryLevel`. |
 | `grok.chatFontScale` | `100` | Zoom for the chat panel only, as a percent (`150`, `200`, …). Scales the whole chat UI without rescaling the rest of VS Code (unlike `Ctrl/Cmd+Shift+=`). Applies live; supports User (global) and Workspace (local) scope. |
@@ -387,7 +387,7 @@ Contributions are welcome.
 ## Known limits
 
 - **Diff preview semantics.** The native editor reconstructs both full-file sides from Grok's replaced-region metadata and the current file on disk, then opens on the first changed line. If the file is unreadable, oversized, or has moved on so the region cannot be located, it safely falls back to the region-only diff. The write happens only after approval.
-- **View placement.** The view defaults to the **Secondary Side Bar** (requires VS Code 1.106+, the extension's engine floor). Relocate it anytime via gear → **Config & debug** → **Move view** (one click: Panel / Primary Side Bar / Secondary Side Bar) — useful in Cursor, whose side-bar context menu hides the built-in "Move To" entry.
+- **View placement.** The view defaults to the **Secondary Side Bar** (requires VS Code 1.106+, the extension's engine floor). Relocate it anytime via Settings → **Move view** (one click: Panel / Primary Side Bar / Secondary Side Bar) — useful in Cursor, whose side-bar context menu hides the built-in "Move To" entry.
 
 ---
 
