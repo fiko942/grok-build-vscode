@@ -1116,6 +1116,22 @@ describe("gear settings lock (model + effort disabled while busy / priming)", ()
     expect(order.filter((t) => t === "setModel")).toHaveLength(1);
   });
 
+  it("commits the picker before a SPOKEN send too, which no click precedes", () => {
+    const { window, posted, doc } = bootWithModels();
+    click(window, $(doc, "gear-btn"));
+    const composer = [...doc.querySelectorAll("#gear-popover .toolbar-popover-item")]
+      .find((el) => el.textContent!.includes("Composer 2.5 Fast")) as HTMLElement;
+    click(window, composer);
+
+    // "grok send" during a dictation the picker was opened over: the send is a
+    // host message, so nothing bubbles into closePopovers on its way in.
+    dispatch(window, { type: "voiceSubmit", text: "hello" });
+
+    const order = types(posted);
+    expect(order).toContain("setModel");
+    expect(order.indexOf("setModel")).toBeLessThan(order.indexOf("send"));
+  });
+
   it("groups remote empty-session models deterministically and switches providers additively", () => {
     const h = bootWebview({ remote: true });
     dispatch(h.window, {

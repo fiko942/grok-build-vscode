@@ -15984,6 +15984,12 @@
   // ("grok send"), whose composer is cleared separately so the mic can keep
   // listening for the next utterance.
   function submitMessage(text) {
+    // The OTHER door, and it is not reached through sendOrStop: a spoken
+    // "grok send" arrives as a host message, so no click ever bubbles into
+    // `closePopovers` to commit what the picker is showing. Dictating with the
+    // picker already open is the way in -- the mic is a toolbar button, so
+    // pressing it commits, but a picker opened DURING a dictation never does.
+    flushPicker();
     const t = (text || "").trim();
     if (!t) return;
     state.busy = true;
