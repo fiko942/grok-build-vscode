@@ -3552,6 +3552,7 @@ Only continue if you trust this code.`,
 
     function commitVerdict(): void {
       session.pendingExitPlans.delete(requestId);
+      sidebar.syncHumanWait(session);
       sidebar.persistPlanVerdict(session, verdict, planText);
       // Same rule as answering a permission or a question: a plan verdict is
       // activity, but it only resumes the turn if nothing else is outstanding.
@@ -3842,6 +3843,7 @@ Only continue if you trust this code.`,
   private persistPermissionAnswer(session: Session, requestId: number | string, optionId: string): void {
     const pending = session.pendingPermissions.get(requestId);
     session.pendingPermissions.delete(requestId);
+    this.syncHumanWait(session);
     if (!pending) return;
     const sid = session.activeSessionId ?? session.client?.sessionId;
     if (!sid) return;
@@ -3946,6 +3948,7 @@ Only continue if you trust this code.`,
         name: o.name,
       })),
     }));
+    this.syncHumanWait(session);
     this.emit(session, {
       type: "permissionRequest",
       req: {
@@ -4337,9 +4340,7 @@ Only continue if you trust this code.`,
     // would refuse to answer the card still on the reader's screen, leaving
     // that agent blocked with no way back short of restarting the session.
     if (!turnIsInFlight(session)) {
-      session.pendingQuestions.clear();
-      session.pendingPermissions.clear();
-      session.pendingExitPlans.clear();
+      this.clearPendingHumanRequests(session);
     }
     if (session.replaying || session.suppressContent) return;
     session.liveFeedbackEligible = true;
@@ -9613,6 +9614,8 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
     // new/resumed/restarted session (covers New Session, history resume, and
     // model/effort restarts — all of which route through here).
     this.stopVoiceInput(session);
+    this.clearPendingHumanRequests(session);
+    this.drainPendingConfirms(session);
     session.client = undefined;
     // Detach and dispose as one structural operation. Nothing that can return
     // belongs between these lines: the old ACP callbacks remain live until the
@@ -9659,8 +9662,6 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
     session.sessionInfoUnsupported = false;
     session.sawCompactNotification = false;
     session.lastPlanText = "";
-    session.pendingExitPlans.clear();
-    session.pendingQuestions.clear();
     session.inFlightPlanComments.clear();
     if (session.planModeRecovery?.warningTimer) clearTimeout(session.planModeRecovery.warningTimer);
     session.planModeRecovery = undefined;
@@ -9789,6 +9790,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
         : { backend: this.createProviderBackend(session.provider) }),
     });
     session.client = client;
+    this.syncHumanWait(session);
     // A replacement process may have gained the capability after a CLI update.
     session.lastSessionInfoAt = 0;
     session.lastSessionInfoUsed = undefined;
@@ -10084,6 +10086,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
     });
     client.on("toolCallUpdate", (u) => {
       if (gen !== session.gen) return;
+      this.closeQuestionsForToolCall(session, u);
       emitToolCallEvent("toolCallUpdate", u);
     });
     client.on("plan", (u) => {
@@ -10278,7 +10281,8 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
       if (gen !== session.gen) return;
       // Questions are read-only and need a human — surface them in every mode
       // (plan/YOLO included); there's no sensible auto-answer.
-      session.pendingQuestions.add(req.id);
+      session.pendingQuestions.set(req.id, req.toolCallId);
+      this.syncHumanWait(session);
       this.emit(session, { type: "questionRequest", req });
       this.setStatus(session, "needs-you");
     });
@@ -10295,6 +10299,8 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
       // replaced attempt's client away from the current attempt's pipe.
       if (session.priming) {
         if (session.client === client) {
+          this.clearPendingHumanRequests(session);
+          this.drainPendingConfirms(session);
           session.client = undefined;
           this.pool.delete(session);
         }
@@ -10537,6 +10543,8 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
         /timed out: (initialize|session\/(new|load))|exited \(code null\)/i.test(msg);
       const userFacing = credentialFailure || stdioRegression || replayBegan || attempt >= startSpawnAttempts;
       client.removeAllListeners("exit");
+      this.clearPendingHumanRequests(session);
+      this.drainPendingConfirms(session);
       client.dispose();
       session.client = undefined;
       if (!userFacing) {
@@ -10832,6 +10840,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
         break;
       case "cancel": {
         const cancelled = session.turnToken;
+        this.clearPendingHumanRequests(session);
         await session.client?.cancel("user Stop click");
         if (cancelled) this.armCancelRecovery(session, cancelled);
         break;
@@ -10965,9 +10974,10 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
         // what a mismatch means is an answer for somebody else's conversation,
         // and dropping it is right. Ignoring it cannot hang the caller either:
         // the real answer still resolves, and an abandoned confirm already
-        // fails closed when the webview goes away.
+        // fails closed on session teardown or replacement.
         if (pending && pending.session === session) {
           this.pendingConfirms.delete(msg.id);
+          this.emit(session, { type: "uiConfirmResolved", requestId: msg.id });
           pending.resolve(msg.ok === true);
         }
         break;
@@ -11155,6 +11165,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
               pending.plan,
             );
             session.pendingPermissions.delete(msg.requestId);
+            this.syncHumanWait(session);
           } else {
             // Persist it (title + outcome) so a cold reload replays a collapsed card —
             // the CLI doesn't replay request_permission on session/load.
@@ -11180,18 +11191,32 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
         // turn ended. Answering it again would write a duplicate JSON-RPC
         // response and drag a settled session back to `working` — with no turn
         // left to ever end it, which on a rented machine bills for ever.
-        if (!session.pendingQuestions.delete(msg.requestId)) break;
+        if (!session.pendingQuestions.delete(msg.requestId)) {
+          this.emit(session, { type: "questionResolved", requestId: msg.requestId, outcome: "stale" });
+          break;
+        }
+        this.syncHumanWait(session);
         if (session.client?.respondQuestion(msg.requestId, msg.answers ?? {}, msg.annotations ?? {})) {
+          this.emit(session, { type: "questionResolved", requestId: msg.requestId, outcome: "accepted" });
           // Answering a QUESTION is not answering a permission card that is
           // also outstanding — the agent stays blocked on it, so `working`
           // would be wrong and would hold a rented machine awake indefinitely.
           this.noteAnswered(session);
+        } else {
+          this.emit(session, { type: "questionResolved", requestId: msg.requestId, outcome: "stale" });
         }
         break;
       case "questionCancel":
-        if (!session.pendingQuestions.delete(msg.requestId)) break;
+        if (!session.pendingQuestions.delete(msg.requestId)) {
+          this.emit(session, { type: "questionResolved", requestId: msg.requestId, outcome: "stale" });
+          break;
+        }
+        this.syncHumanWait(session);
         if (session.client?.respondQuestionCancelled(msg.requestId)) {
+          this.emit(session, { type: "questionResolved", requestId: msg.requestId, outcome: "accepted" });
           this.noteAnswered(session);
+        } else {
+          this.emit(session, { type: "questionResolved", requestId: msg.requestId, outcome: "stale" });
         }
         break;
       case "setModel": {
@@ -15318,6 +15343,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
     // Host ownership begins only after the snapshot's generation check. Re-focus
     // can replay the card without consuming this pending request.
     session.pendingExitPlans.set(req.id, { planText: plan });
+    this.syncHumanWait(session);
     session.lastPlanText = "";
     this.emit(session, {
       type: "exitPlanRequest",
@@ -15391,8 +15417,9 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
    * because only the HOST knows whether files are at stake — hence the
    * round-trip.
    *
-   * Resolves false if the webview goes away before answering (reload, session
-   * teardown): a lost confirm must fail closed, never silently revert files.
+   * Session teardown/replacement resolves false: a lost confirm must fail
+   * closed, never silently revert files. The first answer from any surface
+   * holding the session dismisses the modal on every other surface.
    */
   private confirmInChat(
     session: Session,
@@ -15403,6 +15430,15 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
       this.pendingConfirms.set(id, { session, resolve });
       this.emit(session, { type: "uiConfirmRequest", id, ...opts });
     });
+  }
+
+  private drainPendingConfirms(session: Session): void {
+    for (const [requestId, pending] of this.pendingConfirms) {
+      if (pending.session !== session) continue;
+      this.pendingConfirms.delete(requestId);
+      this.emit(session, { type: "uiConfirmResolved", requestId });
+      pending.resolve(false);
+    }
   }
 
   private async createPlanReviewSnapshot(plan: string, sessionId?: string): Promise<{ path: string; name: string }> {
@@ -16688,6 +16724,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
    *  the mode picker on reconnect. */
   private static readonly TRANSIENT_TYPES = new Set([
     "restoreComposer", "focusInput", "findInSession", "openModePopover",
+    "uiConfirmRequest", "uiConfirmResolved",
     // Replayed mid-buffer it would stamp the then-current footer, not the live
     // one. `sessionUiSnapshot` restores eligibility after historyReplay ends.
     "turnFeedbackAck",
@@ -17040,7 +17077,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
         session.cwd = cwd;
         session.activeSessionId = id;
         // sessionId is required for sessionReadyForPrompt (flush + send).
-        session.client = { dispose() {}, sessionId: id } as AcpClient;
+        session.client = { dispose() {}, setHumanWaitActive(_active: boolean) {}, sessionId: id } as AcpClient;
         session.hasHistory = hasHistory;
         session.chips = chips;
         session.buffer.push(...messages);
@@ -17051,7 +17088,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
         const session = this.newLocalSession();
         session.cwd = cwd;
         session.activeSessionId = id;
-        session.client = { dispose() {}, sessionId: id } as AcpClient;
+        session.client = { dispose() {}, setHumanWaitActive(_active: boolean) {}, sessionId: id } as AcpClient;
         session.hasHistory = true;
         this.pool.add(session);
       },
@@ -17077,7 +17114,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
         session.cwd = cwd;
         session.activeSessionId = id;
         // Priming: client may exist without a session id (spawn window).
-        session.client = { dispose() {} } as AcpClient;
+        session.client = { dispose() {}, setHumanWaitActive(_active: boolean) {} } as AcpClient;
         session.priming = true;
         session.queuedSends = [{ text: queuedText, chips: [] }];
         session.queuedSendRequiresRelay = true;
@@ -17096,6 +17133,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
           sessionId: id,
           availableCommands: [],
           dispose() {},
+          setHumanWaitActive(_active: boolean) {},
           prompt: async (blocks: Parameters<AcpClient["prompt"]>[0]) => {
             prompts += 1;
             lastBlocks = blocks;
@@ -17991,6 +18029,8 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
   private detachClient(session: Session): AcpClient | undefined {
     const client = session.client;
     session.gen++;
+    this.clearPendingHumanRequests(session);
+    this.drainPendingConfirms(session);
     session.client = undefined;
     session.turnToken = undefined;
     // ITS COMMANDS GO WITH IT.
@@ -18131,7 +18171,45 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
   /** Pending {@link refreshSessionOrderAfterTurn} timers, so dispose can clear them. */
   private turnOrderTimers = new Set<ReturnType<typeof setTimeout>>();
 
-  /** True when any live pool member is mid-turn or waiting on the user. */
+  private syncHumanWait(session: Session): void {
+    session.client?.setHumanWaitActive(
+      session.pendingQuestions.size > 0
+      || session.pendingPermissions.size > 0
+      || session.pendingExitPlans.size > 0,
+    );
+  }
+
+  private closeQuestionsForToolCall(
+    session: Session,
+    call: { toolCallId?: unknown; status?: unknown } | null | undefined,
+  ): void {
+    const toolCallId = call?.toolCallId;
+    if (typeof toolCallId !== "string" || !toolCallId
+      || (call?.status !== "completed" && call?.status !== "failed")) return;
+    let closed = false;
+    for (const [requestId, pendingToolCallId] of session.pendingQuestions) {
+      if (pendingToolCallId !== toolCallId) continue;
+      session.pendingQuestions.delete(requestId);
+      this.emit(session, { type: "questionResolved", requestId, outcome: "closed" });
+      closed = true;
+    }
+    if (!closed) return;
+    // Answers and CLI abandonment produce the same terminal status. It proves
+    // closure, not its reason; neither the tool's prose nor a timeout is needed.
+    this.syncHumanWait(session);
+    if (turnIsInFlight(session)) this.noteAnswered(session);
+  }
+
+  private clearPendingHumanRequests(session: Session): void {
+    for (const requestId of session.pendingQuestions.keys()) {
+      this.emit(session, { type: "questionResolved", requestId, outcome: "closed" });
+    }
+    session.pendingQuestions.clear();
+    session.pendingPermissions.clear();
+    session.pendingExitPlans.clear();
+    this.syncHumanWait(session);
+  }
+
   /**
    * The agent was waiting on a person and now it is not.
    *
@@ -18156,6 +18234,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
     this.refreshKeepAwake();
   }
 
+  /** True when any live pool member is mid-turn or waiting on the user. */
   private anyTurnInFlight(): boolean {
     for (const s of this.pool) {
       if (hasLiveWork(s)) return true;

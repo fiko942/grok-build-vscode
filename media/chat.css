@@ -4522,13 +4522,15 @@ body.dragging { outline: 2px dashed var(--vscode-focusBorder); outline-offset: -
   line-height: 1.35;
   font-family: var(--vscode-font-family);
 }
-/* The chosen answer, shown once the card is answered ÔÇö kept bright (the card
-   isn't dimmed) so it's an unmistakable "grok got this" signal. */
+/* Keep submitted and recovered answers readable and copyable. */
 .card.question.resolved { opacity: 1; }
 .card .question-answer {
   font-size: 13px;
   font-weight: 600;
   color: var(--vscode-charts-green, #89d185);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 .card .question-options { display: flex; flex-direction: column; gap: 4px; }
 .card button.question-option {

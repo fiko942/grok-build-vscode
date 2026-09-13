@@ -193,7 +193,9 @@ export class Session {
   pendingExitPlans = new Map<number | string, PendingExitPlan>();
 
   /**
-   * Live question requests awaiting an answer, by ACP request id.
+   * Live questions by ACP request id, with the toolCallId when the CLI supplies
+   * it. A matching terminal tool update closes the request even without a local
+   * answer. Older CLIs without that id retain the turn-end/stale-answer fallback.
    *
    * Tracked for the same reason as the two maps beside it: answering one card
    * does not resume a turn that another card is still blocking. Questions had
@@ -202,7 +204,7 @@ export class Session {
    * agent stayed blocked, and on a rented machine the heartbeat that follows
    * `working` kept it awake and billing indefinitely.
    */
-  pendingQuestions = new Set<number | string>();
+  pendingQuestions = new Map<number | string, string | undefined>();
 
   /** Submitted plan comments still awaiting `_x.ai/interject` acceptance. */
   inFlightPlanComments = new Map<number | string, InFlightPlanComment>();

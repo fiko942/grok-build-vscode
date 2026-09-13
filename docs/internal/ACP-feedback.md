@@ -23,6 +23,12 @@ refresh after substantive work. §4 gained three findings and had its method swe
 vary by machine (§9), so §14's two enforcement claims are scoped to that host until a second one
 confirms them. Everything not named here is still 0.2.117 evidence.
 
+**A narrow 1.0.30 pass ran on 2026-09-13** (grok CLI **1.0.30**, one Windows 11 host), driving
+`grok agent stdio` directly rather than through the extension. It added **§16** and touched nothing
+else: two controlled runs of `ask_user_question`, one answered and one left to expire, logging every
+frame stamped from the moment of the ask. No other section was re-run, so everything else keeps the
+build it is labelled with.
+
 **§2's finding first changed shape on 1.0.4 (2026-08-15)**, after a user report: the image-aware
 `read_file` had shipped, but delegating clients could not reach it. That remains true on 1.0.5,
 where it was re-run in full.
@@ -645,6 +651,56 @@ Everything needed for a good UI is in that payload (`displayName`, `source`,
 on `_x.ai/mcp/servers_updated`; document `_x.ai/mcp/list` or fold it into those
 rails; and make `initialize._meta.mcpApps` mean something a client can gate on,
 or remove it. Full evidence and reproduction: `ACP-MCP-ask.md`.
+
+## 16. An abandoned `ask_user_question` closes exactly like an answered one (new)
+
+**LIVE-VERIFIED 1.0.30 (2026-09-13)**, two controlled runs on one Windows 11 host, driving
+`grok agent stdio` directly and logging every frame stamped from the moment of the ask.
+
+`ask_user_question` has its own documented timeout — `[toolset.ask_user_question]`,
+`timeout_enabled = true`, `timeout_secs = 1800`, overridable by `GROK_ASK_USER_QUESTION_TIMEOUT_*`,
+user config and requirements. On expiry the CLI stops waiting and continues the turn. That part is
+documented and reasonable.
+
+**The CLI does tell the client the interaction closed.** The request carries a `toolCallId`, and at
+expiry two frames arrive naming it:
+
+    interaction_resolved { tool_call_id: "call-…-0" }
+    tool_call_update     { toolCallId: "call-…-0", status: "completed",
+                           content: [{ text: "User declined to answer the questions.
+                                              Continue with the task" }] }
+
+**The problem is that an answered question closes with the identical shape.** Same two frames, same
+`status: "completed"`, differing only in an English sentence inside `content`:
+
+    tool_call_update     { toolCallId: "call-…-0", status: "completed",
+                           content: [{ text: "User has answered your questions:
+                                              \"Which colour?\"=\"Red\". You can now
+                                              continue with the user's answers in mind." }] }
+
+So a client can reliably learn *that* the interaction is over — which is enough to retire a card —
+but cannot learn *why* without pattern-matching prose. `interaction_resolved` carries no reason
+code, and `status` is `completed` in both cases even though one of them is an abandonment.
+
+Note also `pending_interaction` does carry a `kind` (`"question"` / `"permission"`) when the
+interaction opens, so the vocabulary for discriminating already exists on the way in — it is only
+the way out that is undifferentiated.
+
+**Client cost/workaround:** we correlate by `toolCallId` and treat any terminal `tool_call_update`
+as closure, which is correct and is what we ship. What we cannot do is tell the user *why* their
+card went inert — "the agent moved on without your answer" and "your answer was accepted" are the
+same event on the wire. We deliberately do **not** match the prose: a client keying off an English
+sentence breaks silently the day it is reworded, and that is not a dependency worth taking.
+
+This is the direct cause of [#160](https://github.com/phuryn/grok-build-vscode/issues/160), where a
+user answered after the CLI had already given up and reasonably reported "clicking Submit seems to
+do nothing".
+
+**Ask:** put a reason on the way out. Either a field on `interaction_resolved`
+(`reason: "answered" | "timed_out" | "cancelled"`), or a non-`completed` status on the
+`tool_call_update` for an abandonment — `completed` for a tool that never got its input is
+misleading on its own terms. Either one is a small addition and it is the difference between a
+client that can explain itself to the user and one that can only guess.
 
 ## Closed since the archive
 
