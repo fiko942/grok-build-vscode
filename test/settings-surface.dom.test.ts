@@ -1729,6 +1729,20 @@ describe("settings overlay (chat.js)", () => {
     expect(snapshot.snapshotShortcut).toBe("Ctrl+Alt+S");
     expect(snapshot.snapshotAutoAttach).toBe(true);
     expect(snapshot.snapshotSavePath).toBe("");
+
+    // Verify visibility on Windows vs macOS
+    const winEnv = api.defaultEnv(fullEnv({ isWindows: true, isMac: false }));
+    const macEnv = api.defaultEnv(fullEnv({ isWindows: false, isMac: true }));
+    const winVisible = api.visibleRows(snapshot, winEnv).map((r) => r.id);
+    const macVisible = api.visibleRows(snapshot, macEnv).map((r) => r.id);
+
+    expect(winVisible).toContain("snapshotShortcut");
+    expect(winVisible).toContain("snapshotAutoAttach");
+    expect(winVisible).toContain("snapshotSavePath");
+
+    expect(macVisible).not.toContain("snapshotShortcut");
+    expect(macVisible).not.toContain("snapshotAutoAttach");
+    expect(macVisible).not.toContain("snapshotSavePath");
   });
 });
 

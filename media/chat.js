@@ -3079,6 +3079,20 @@
   // full-window overlay; VS Code posts openSettingsSurface for an editor tab.
   let settingsSurface = null;
 
+  function isMacPlatform() {
+    const plat = typeof navigator !== "undefined" ? (navigator.platform || "") : "";
+    if (/Mac|iPhone|iPad|iPod/.test(plat)) return true;
+    const ua = typeof navigator !== "undefined" ? (navigator.userAgent || "") : "";
+    return /Mac OS X/.test(ua);
+  }
+
+  function isWindowsPlatform() {
+    const plat = typeof navigator !== "undefined" ? (navigator.platform || "") : "";
+    if (/Win/.test(plat)) return true;
+    const ua = typeof navigator !== "undefined" ? (navigator.userAgent || "") : "";
+    return /Windows/.test(ua);
+  }
+
   function hostOpensSettingsEditor() {
     return !IS_REMOTE && state.hostCaps && state.hostCaps.settingsEditor === true;
   }
@@ -3087,6 +3101,8 @@
     return {
       isRemote: IS_REMOTE,
       isDesktop: isDesktopHostCaps(),
+      isWindows: isWindowsPlatform(),
+      isMac: isMacPlatform(),
       deviceLogin: state.deviceLoginByProvider,
       clientOwnsFontScale: CLIENT_OWNS_FONT_SCALE,
       ttsAvailable,
