@@ -63,6 +63,11 @@ export function parseWebviewMsg(raw: unknown): WebviewMsg | null {
   if (!isString(type) || !TYPE_SET.has(type)) return null;
 
   switch (type as WebviewMsg["type"]) {
+    case "setVoiceBackend":
+      if (raw.value !== "auto" && raw.value !== "xai" && raw.value !== "openai") return null;
+      break;
+    case "configureOpenAiVoice":
+      break;
     case "ready":
       if (!opt(raw.tabToken, isString)) return null;
       break;

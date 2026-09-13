@@ -10,6 +10,7 @@
       setAppPurpose: ["appPurpose", "this app to " + (message.value === "coding" ? "Coding" : "Knowledge work")],
       setVoiceSendPhrase: ["voiceSendPhrase", "the voice send phrase to “" + message.value + "”"],
       setVoiceKeyterms: ["voiceKeyterms", "voice keyterms to “" + (Array.isArray(message.value) ? message.value.join(", ") : "") + "”"],
+      setVoiceBackend: ["voiceBackend", "the transcription backend to “" + message.value + "”"],
       setTelemetryEnabled: ["telemetryEnabled", "anonymous analytics to " + (message.value ? "on" : "off")],
       setThumbsFeedback: ["thumbsFeedback", "feedback buttons to " + (message.value ? "on" : "off")],
     };
@@ -68,6 +69,7 @@
       if (msg.type === "voiceConfigured") {
         if (pending.field === "voiceSendPhrase") value = msg.sendPhrase;
         if (pending.field === "voiceKeyterms") value = msg.keyterms;
+        if (pending.field === "voiceBackend") value = msg.backendState && msg.backendState.preference;
       }
       if (msg.type === "repos" && pending.message.cwd) {
         const repo = (msg.entries || []).find((entry) => sameCwd(entry.cwd, pending.message.cwd));
@@ -3154,6 +3156,7 @@
       voiceConfigured: !!state.voiceConfigured,
       voiceSendPhrase: typeof state.voiceSendPhrase === "string" ? state.voiceSendPhrase : "grok send",
       voiceKeyterms: Array.isArray(state.voiceKeyterms) ? state.voiceKeyterms : [],
+      voiceBackendState: state.voiceBackendState,
       telemetryEnabled: state.telemetryEnabled,
       thumbsFeedback: !!state.thumbsFeedback,
       promptNav: !!state.promptNav,
@@ -3389,6 +3392,7 @@
 
   function openSettingsOverlay(opener, opts) {
     const api = window.GrokSettings;
+    window.GrokVoiceSettings?.install(api);
     if (!api || typeof api.mount !== "function") return;
     closeSettingsOverlay();
     closePopovers();
@@ -15674,6 +15678,9 @@
   // setup failure (no API key, ffmpeg missing), sends "voiceError" to reset us.
   function renderMic() {
     if (!micBtn) return;
+    if (state.voiceBackendState?.backends) {
+      state.voiceConfigured = !!state.voiceBackendState.backends[state.activeProvider || "grok"];
+    }
     micBtn.classList.toggle("listening", state.mic === "listening");
     micBtn.classList.toggle("transcribing", state.mic === "transcribing");
     micBtn.classList.toggle("connecting", state.mic === "connecting");
@@ -15707,7 +15714,7 @@
         ? "Voice control"
         : voiceNeedsGrokAccount()
           ? "Voice needs Grok connected"
-          : "Voice control — click to set up (needs an xAI API key)";
+          : "Voice control — click to set up (needs an OpenAI or xAI credential)";
       micBtn.disabled = false;
     }
     // "needs setup" dot only when idle, clickable, and no key is configured.
@@ -15715,7 +15722,7 @@
   }
 
   function voiceNeedsGrokAccount() {
-    return !!state.providersKnown && !state.voiceConfigured
+    return !state.voiceBackendState && !!state.providersKnown && !state.voiceConfigured
       && !state.providers.some((provider) => provider.id === "grok" && provider.connected);
   }
 
@@ -17763,6 +17770,7 @@
         renderQueuedBlocks();
         syncFeedbackButtons();
         syncProviderVoice();
+        renderMic();
         // The nudge is gated on the active provider, and this is the only place
         // that changes — without a repaint here it would linger on the tab the
         // user switched TO until some unrelated render happened to run.
@@ -17867,10 +17875,12 @@
         break;
       case "voiceConfigured":
         state.voiceConfigured = !!msg.value;
+        state.voiceBackendState = msg.backendState;
         if (typeof msg.sendPhrase === "string") state.voiceSendPhrase = msg.sendPhrase;
         if (Array.isArray(msg.keyterms)) state.voiceKeyterms = msg.keyterms.filter((t) => typeof t === "string");
         renderMic();
         renderInputHighlight();
+        refreshSettingsOverlay();
         break;
       case "voicePartial":
         if (state.voiceDiscarded) break;

@@ -33,6 +33,7 @@ is read when you are deciding something, not on every turn — and this file was
 | Which ACP methods are wired, and how | [architecture.md § ACP surfaces implemented](docs/architecture.md#acp-surfaces-implemented) |
 | Session pool / Agent Dashboard | [architecture.md § Subsystem notes](docs/architecture.md#subsystem-notes) |
 | History windowing and pagination | [architecture.md § Subsystem notes](docs/architecture.md#subsystem-notes) |
+| Dictation backends, routing, credentials and streaming contract | [research/openai-voice.md](research/openai-voice.md) |
 | What shipped when | [CHANGELOG.md](CHANGELOG.md) |
 | What is planned | the private backlog, not this file |
 

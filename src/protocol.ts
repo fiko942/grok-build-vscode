@@ -23,6 +23,7 @@
 
 import type { ModelInfo, PromptResultMeta, PromptUsage, PermissionRequest, ExitPlanRequest, QuestionRequest } from "./acp";
 import type { FileChip } from "./chips";
+import type { SttPreference, VoiceBackendState } from "./voice";
 import type { RepoListEntry, SessionListEntry } from "./sessions";
 import type { Dot } from "./session-pool";
 import type { RunProgressUpdate } from "./run-progress";
@@ -596,7 +597,7 @@ export type HostMsg =
   | { type: "modeChanged"; modeId: string }
   | { type: "openModePopover" }
   | { type: "voiceState"; status: "listening" | "transcribing" | "idle" }
-  | { type: "voiceConfigured"; value: boolean; sendPhrase?: string; keyterms?: string[] }
+  | { type: "voiceConfigured"; value: boolean; sendPhrase?: string; keyterms?: string[]; backendState?: VoiceBackendState }
   /** Live `grok.telemetry.enabled` so the settings surface stays in sync. */
   | { type: "telemetryEnabled"; value: boolean }
   /** Live `grok.thumbsFeedback` so the settings surface stays in sync. */
@@ -1205,6 +1206,8 @@ export type WebviewMsg =
   | { type: "setVoiceSendPhrase"; value: string }
   /** Persist `grok.voiceKeyterms` (user dictionary terms only). */
   | { type: "setVoiceKeyterms"; value: string[] }
+  | { type: "setVoiceBackend"; value: SttPreference }
+  | { type: "configureOpenAiVoice" }
   /** Persist `grok.telemetry.enabled`. Desktop toggle; remotes do not send this. */
   | { type: "setTelemetryEnabled"; value: boolean }
   /** Persist `grok.thumbsFeedback`. Host-owned; remotes honour the desk value. */
@@ -1508,7 +1511,7 @@ const WEBVIEW_MESSAGE_TYPE_MAP: Record<WebviewMsg["type"], true> = {
   readProviderConfig: true, writeProviderConfig: true, restartProviderSession: true,
   gitStatus: true, gitFileDiff: true, gitRun: true,
   pasteImage: true, uploadFile: true, voiceStart: true,
-  voiceStop: true, remoteVoiceStart: true, remoteVoiceChunk: true,
+  voiceStop: true, setVoiceBackend: true, configureOpenAiVoice: true, remoteVoiceStart: true, remoteVoiceChunk: true,
   remoteVoiceStop: true, queueSend: true, dequeueSend: true, clearQueuedSends: true,
   steerSend: true, turnFeedback: true, forkSession: true,
   newWorktreeSession: true, applyWorktree: true, removeWorktree: true,
