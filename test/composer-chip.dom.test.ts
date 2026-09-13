@@ -137,7 +137,7 @@ describe("composer chip", () => {
     dispatch(h.window, { type: "initialState", effort: "medium", appPurpose: "coding" });
     expect(h.doc.querySelector(".model-chip-effort")?.textContent).toBe("Medium");
     expect(h.doc.getElementById("context-popover")!.textContent).toContain("In this window");
-    expect(h.doc.getElementById("context-popover")!.textContent?.replace(/\s/g, "")).toContain("System1,234");
+    expect(h.doc.getElementById("context-popover")!.textContent?.replace(/\s/g, "")).toContain("System1.23K");
   });
 
   it("reconciles a model's narrower ladder from existing metadata", () => {

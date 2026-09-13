@@ -1282,17 +1282,30 @@ a:hover {
 /* Shrink-to-fit otherwise takes the fineprint as one line (Claude/Codex
    "Last prompt" copy is long). 350px still reads on the phone profile. */
 #context-popover {
+  /* Shrink-to-fit plus `overflow-wrap: anywhere` on the rows sizes this box
+     toward MIN-content, which is what split 10,284 into "10,28" and "4" on a
+     phone: the cap was never the binding constraint, the intrinsic width was.
+     Ask for the content's natural width and let max-width do the capping. */
+  width: max-content;
   max-width: 350px;
   box-sizing: border-box;
 }
-/* 350px is a desk number. On a phone it forces "Context used" and its figure
-   onto separate lines and still leaves the ledger's own columns fighting, so
-   let it take the width the screen actually has. */
+/* 350px is a desk number. On a phone the rows want more, and the ask was for
+   up to 80% of the screen before anything wraps -- which this cap already
+   clears, so it stays where it is and `width: max-content` above is what
+   actually lets the box take it. */
 @media (hover: none), (pointer: coarse) {
   #context-popover { max-width: min(94vw, 420px); }
 }
 #context-popover .popover-fineprint,
 #context-popover .popover-info { white-space: normal; }
+/* A figure is one word however the label behaves: `overflow-wrap: anywhere` is
+   there for long version strings in the About panel, and applied to a number it
+   breaks it mid-digits. Wrapping is the label's job. */
+#context-popover .popover-info > :last-child {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
 /* .history-popover sets display:flex, which would otherwise beat the UA
    [hidden]{display:none} rule (author styles win), so it could never hide. */
 .toolbar-popover[hidden] { display: none; }

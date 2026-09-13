@@ -3199,7 +3199,7 @@ describe("context popover (donut click, #39)", () => {
     expect(text).toContain("Skills");
     expect(text).toContain("MCP (2 servers)");
     // 16,017 used − 1,039 system − 12,166 messages = 2,812 overhead.
-    expect(text).toContain(`Reasoning/overhead${(2812).toLocaleString()}`);
+    expect(text).toContain("Reasoning/overhead2.81K");
     const windowAt = text.indexOf("In this window");
     const countedAt = text.indexOf("Already counted above");
     expect(text.indexOf("System")).toBeGreaterThan(windowAt);
@@ -3236,7 +3236,7 @@ describe("context popover (donut click, #39)", () => {
     expect(first).toMatch(/System\s*10/);
     expect(first).toMatch(/Messages\s*80/);
     expect(first).toMatch(/Reasoning\/overhead\s*10/);
-    expect(first).toContain(`Free${(199890).toLocaleString()}`);
+    expect(first).toContain("Free200K");
     expect(first).toContain("Already counted above");
     expect(first).toContain("Tool definitions");
     expect(first).toContain("Skills");
@@ -3274,7 +3274,7 @@ describe("context popover (donut click, #39)", () => {
     const text = $(doc, "context-popover").textContent!;
     expect(text).toContain("In this window");
     expect(text).toMatch(/Reasoning\/overhead\s*10/);
-    expect(text).toContain(`Free${(199890).toLocaleString()}`);
+    expect(text).toContain("Free200K");
   });
 
   it("keeps the snapshot after promptComplete moves used and re-fetches session/info", () => {
@@ -3322,7 +3322,7 @@ describe("context popover (donut click, #39)", () => {
     });
     click(window, $(doc, "donut"));
     const text = $(doc, "context-popover").textContent!;
-    expect(text).toContain(`Reasoning/overhead${(3000).toLocaleString()}`);
+    expect(text).toContain("Reasoning/overhead3K");
     const windowAt = text.indexOf("In this window");
     const countedAt = text.indexOf("Already counted above");
     expect(text.indexOf("Reasoning/overhead")).toBeGreaterThan(windowAt);
@@ -3452,7 +3452,9 @@ describe("context popover — usage breakdown (#53)", () => {
     // Session total is the number you act on, so it leads; Last turn is detail.
     expect(txt.indexOf("Session total")).toBeGreaterThan(-1);
     expect(txt.indexOf("Session total")).toBeLessThan(txt.indexOf("Last turn"));
-    expect(txt.replace(/[,\s\u00a0\u202f]/g, "")).toContain("32722");
+    // Thousands read as thousands here too: the ledger is one column of
+    // figures, and 32,722 beside 32.26K would be two different scales.
+    expect(txt.replace(/[,\s\u00a0\u202f]/g, "")).toContain("32.72K");
     expect(txt).toContain("cache read");
     expect(txt).not.toContain("Cost"); // no reported cost => no fake $0 row
     // No cache-CREATION field exists anywhere in the CLI — it must not be faked.

@@ -22,6 +22,8 @@ The mic node is immediately after `+` in `.toolbar-left`. New host markup puts i
 
 `contextFullnessColor` serves both the donut and the single context bar. Thresholds are strictly greater than 70 and 90 on the rounded percentage. Both purposes reveal the bar and secondary Compact button; the coding ledger remains below them.
 
+The ledger's figures are compact -- `compactTokens`: thousands and millions, two decimals below the hundred and none above it, trailing zeros dropped, so 1.48K, 10.28K, 499K, 500K, 1.2M. Under a thousand the exact number is short enough to say outright, and above 999,500 the K branch would round to "1,000K", which is a million wearing the wrong unit. Coarser than it looks is the point: the ledger answers "how much room is left", and 498,525 answers that no better than 499K while costing a column wide enough to break a number in half on a phone -- the donut's tooltip still carries the exact figure. The popover sizes to `width: max-content` with `max-width` doing the capping, because shrink-to-fit plus the rows' `overflow-wrap: anywhere` sized the box toward MIN-content and split `10,284` into "10,28" and "4"; a figure is one word however its label behaves, so the value cell is `nowrap` with `overflow-wrap: normal`. Touch keeps its `min(94vw, 420px)` cap, which already clears the 80% the ask named.
+
 ## Verification
 
 - `test/codex-acp-integration.test.ts`: the catalog the `session` event publishes carries an advertised requested level and leaves an off-menu one at the CLI's own.

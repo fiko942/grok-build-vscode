@@ -1270,6 +1270,30 @@
     return Math.round(n / 1000) + "K";
   }
 
+  /** Token counts for the ledger: thousands and millions, two decimals below
+   *  the hundred and none above it -- 1.48K, 10.28K, 499K, 1.2M. Trailing
+   *  zeros go, so a round window reads 500K and 1M rather than 500.00K and
+   *  1.00M. Under a thousand the exact number is short enough to say outright.
+   *
+   *  Coarser than it looks is the point: the ledger is read to answer "how
+   *  much room is left", and 498,525 answers that no better than 499K while
+   *  costing a column wide enough to break a number in half on a phone. The
+   *  donut's own tooltip still carries the exact figure. */
+  function compactTokens(n) {
+    const value = Number(n);
+    if (!Number.isFinite(value)) return String(n);
+    const magnitude = Math.abs(value);
+    if (magnitude < 1000) return value.toLocaleString();
+    // 999,500 rather than a million: above it the K branch would round to
+    // "1,000K", which is a million wearing the wrong unit.
+    const [scale, suffix] = magnitude < 999_500 ? [1e3, "K"] : [1e6, "M"];
+    const scaled = magnitude / scale;
+    const text = scaled < 100
+      ? scaled.toFixed(2).replace(/\.?0+$/, "")
+      : Math.round(scaled).toLocaleString();
+    return (value < 0 ? "-" : "") + text + suffix;
+  }
+
   function truncate(s, max) {
     return s.length > max ? s.slice(0, max) + "…" : s;
   }
@@ -2130,7 +2154,7 @@
       el.textContent = label;
       (parent || contextPopover).appendChild(el);
     };
-    const tok = (n) => Number(n).toLocaleString();
+    const tok = compactTokens;
 
     /** A collapsible ledger section.
      *
