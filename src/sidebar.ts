@@ -91,7 +91,7 @@ import { summarizeForSpeech } from "./speech-summary";
 import type { PromptResultMeta, PromptUsage, SessionInfoContext } from "./acp-dispatch";
 import { MediaRef, adapterCompactSignal, adapterContextOccupancy, agentTimestampMsFromMeta, autoCompactStartedNote, childStreamFromRoute, commandOutputForToolCall, commandOutputFromLiveTerminal, contextUsedFromCompactNotification, enforceCompleteSessionCost, errorDetail, gateZeroTokenMeta, isAuthErrorText, isCredentialError, isIncompatibleAgentError, isResumeNotFound, isRateLimitError, isSubagentLifecycleUpdate, occupancyFromAdapterTurn, parseSessionInfoContext, permissionOutcomeFor, promptErrorText, rateLimitNoticeText, sessionInfoCacheFresh, sumUsage, summarizeBackgroundCommand, usageIsRealMeasurement, type UpdateRoute } from "./acp-dispatch";
 import { createMcpPrepareState, prepareMcpToolCall } from "./mcp-tool";
-import { EFFORT_PREFS_KEY, modeToRemember, rememberedEffort, startsInYolo, type EffortPrefs } from "./mode-prefs";
+import { EFFORT_PREFS_KEY, configWriteTarget, modeToRemember, rememberedEffort, startsInYolo, type EffortPrefs } from "./mode-prefs";
 import { beginAuthRecovery, oauthShadowsXaiApiKey } from "./auth-recovery";
 import {
   WELCOME_TIPS_KEY,
@@ -2456,9 +2456,21 @@ export class GrokSidebar {
     );
   }
 
+  /** Persist a picker choice where the next read will actually find it.
+   *  These keys declare no `scope`, so they are `window`-scoped and a workspace
+   *  value outranks the global one — while every read here asks for the
+   *  EFFECTIVE value. Writing Global underneath such an override recorded a
+   *  choice nothing would ever read: the picker moved, the next spawn re-read
+   *  the workspace's value, and the control snapped back to it every time
+   *  (#162). */
+  private async rememberGrokConfig(key: "defaultEffort" | "defaultModel" | "defaultMode", value: string): Promise<void> {
+    const cfg = this.host.getConfiguration("grok");
+    await cfg.update(key, value, configWriteTarget(cfg.inspect<string>(key)));
+  }
+
   private async rememberProviderEffort(provider: AcpProvider, level: string): Promise<void> {
     if (provider === "grok") {
-      await this.host.getConfiguration("grok").update("defaultEffort", level, "global");
+      await this.rememberGrokConfig("defaultEffort", level);
       return;
     }
     // Picker memory follows the host's globalState, like project/provider
@@ -3003,12 +3015,11 @@ export class GrokSidebar {
       return;
     }
     if (modelId === client.currentModelId) return;
-    const cfg = this.host.getConfiguration("grok");
     if (!modelId) {
       if (session.hasHistory) return;
       const discardId = session.activeSessionId;
       await this.rememberProjectProvider(this.sessionCwd(session), provider, undefined);
-      if (provider === "grok") await cfg.update("defaultModel", "", "global");
+      if (provider === "grok") await this.rememberGrokConfig("defaultModel", "");
       else if (isAdapterProvider(provider)) await this.discardAdapterEmptySession(provider, discardId, this.sessionCwd(session), client);
       await this.startSession(undefined, session);
       if (provider === "grok") this.discardRestartedEmptySession(discardId, session);
@@ -3017,7 +3028,7 @@ export class GrokSidebar {
     try {
       await client.setModel(modelId);
       await this.rememberProjectProvider(this.sessionCwd(session), provider, modelId);
-      if (provider === "grok") await cfg.update("defaultModel", modelId, "global");
+      if (provider === "grok") await this.rememberGrokConfig("defaultModel", modelId);
     } catch (e) {
       if (!isIncompatibleAgentError(e)) {
         this.reportRequester(requester, "error", `Failed to set model: ${(e as Error).message}`);
@@ -3028,7 +3039,7 @@ export class GrokSidebar {
         // with a fresh grok id. There is nothing to summarize or preserve.
         // Drop it after the restart, carrying over any rename the user made.
         const discardId = session.activeSessionId;
-        await cfg.update("defaultModel", modelId, "global");
+        await this.rememberGrokConfig("defaultModel", modelId);
         await this.startSession(undefined, session);
         this.discardRestartedEmptySession(discardId, session);
         return;
@@ -3043,7 +3054,7 @@ export class GrokSidebar {
       }
       const mode = await this.pickRestartMode("Switching to this model requires a new session.");
       if (!mode) return; // dismissed — keep the current model
-      await cfg.update("defaultModel", modelId, "global");
+      await this.rememberGrokConfig("defaultModel", modelId);
       await this.restartSession(mode, session);
     }
   }
@@ -3368,8 +3379,7 @@ Only continue if you trust this code.`,
     // directly). `modeToRemember` drops Plan (a transient per-task choice).
     const remember = modeToRemember(modeId);
     if (remember) {
-      void this.host.getConfiguration("grok")
-        .update("defaultMode", remember, "global");
+      void this.rememberGrokConfig("defaultMode", remember);
     }
     if (modeId === "yolo") {
       session.autoApprove = true;
@@ -10481,15 +10491,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
           this.host.appendLine(
             `[startup] Default model '${defaultModel}' is not available; switching grok.defaultModel to '${client.currentModelId}'.`,
           );
-          const cfg = this.host.getConfiguration("grok");
-          const scope = cfg.inspect<string>("defaultModel");
-          const target =
-            scope?.workspaceFolderValue !== undefined
-              ? "workspaceFolder"
-              : scope?.workspaceValue !== undefined
-                ? "workspace"
-                : "global";
-          void cfg.update("defaultModel", client.currentModelId, target);
+          void this.rememberGrokConfig("defaultModel", client.currentModelId);
         }
       }
 

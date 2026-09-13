@@ -496,14 +496,21 @@
     codex: "Ask GPT\u2026",
     claude: "Ask Claude\u2026",
   };
-  const EFFORT_TOOLTIPS = {
-    none: "None — no extra reasoning",
-    minimal: "Minimal — least reasoning",
-    low: "Low — fast, lightweight reasoning",
-    medium: "Medium — balanced",
-    high: "High — deeper reasoning",
-    xhigh: "XHigh — deepest reasoning, slowest",
+  // What each level MEANS. The name is prepended from `effortLabel` rather than
+  // spelled here, so one level cannot be called two things in one popover — the
+  // strip header read "Extra high" while its own tip said "XHigh".
+  const EFFORT_BLURBS = {
+    none: "no extra reasoning",
+    minimal: "least reasoning",
+    low: "fast, lightweight reasoning",
+    medium: "balanced",
+    high: "deeper reasoning",
+    xhigh: "deepest reasoning, slowest",
   };
+  function effortTooltip(level) {
+    const blurb = EFFORT_BLURBS[level];
+    return blurb ? `${effortLabel(level)} — ${blurb}` : effortLabel(level);
+  }
 
   // The effort levels the model picker OFFERS: the ACTIVE model's advertised menu
   // (`models[]._meta.reasoningEfforts`, already delivered to the webview on the
@@ -4524,7 +4531,7 @@
       stop.dataset.effort = level;
       stop.setAttribute("role", "radio");
       stop.setAttribute("aria-label", effortLabel(level));
-      stop.title = EFFORT_TOOLTIPS[level] || effortLabel(level);
+      stop.title = effortTooltip(level);
       stop.disabled = locked;
       stop.innerHTML = "<i></i>";
       stop.onclick = (e) => { e.stopPropagation(); preview(level); };
@@ -4594,7 +4601,7 @@
         stop.tabIndex = i === Math.max(0, index) ? 0 : -1;
       });
       value.textContent = !currentModel() ? "Loading…" : level ? effortLabel(level) : "Default";
-      tip.textContent = EFFORT_TOOLTIPS[level] || (level ? effortLabel(level) : "Uses the provider default");
+      tip.textContent = level ? effortTooltip(level) : "Uses the provider default";
     };
     update();
     box.append(header, track, tip);

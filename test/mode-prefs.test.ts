@@ -53,7 +53,21 @@ describe("effort picker persistence", () => {
       setReasoningEffort: vi.fn(async (level) => { session.client!.currentReasoningEffort = level; return true; }),
     } as any;
     const values: Record<string, unknown> = {};
-    const cfg = { get: () => "high", update: vi.fn(async () => {}) };
+    // VS Code's real semantics: `update` writes ONE scope, `get` returns the
+    // EFFECTIVE value. This fake used to be `{ get: () => "high", update:
+    // vi.fn() }` — a `get` that ignored every write — so a write landing in a
+    // scope nothing reads back was invisible here by construction. That is how
+    // #162 shipped; test/effort-scope.test.ts covers the scopes themselves.
+    const scopes: { global: string; workspace?: string } = { global: "high" };
+    const cfg = {
+      get: (_key: string, fallback = "") =>
+        scopes.workspace !== undefined ? scopes.workspace : (scopes.global || fallback),
+      inspect: (key: string) => ({ key, globalValue: scopes.global, workspaceValue: scopes.workspace }),
+      update: vi.fn(async (_key: string, value: string, target: string) => {
+        if (target === "global") scopes.global = value;
+        else scopes.workspace = value;
+      }),
+    };
     sidebar.focused = session;
     sidebar.host = { getConfiguration: () => cfg };
     sidebar.state = {
