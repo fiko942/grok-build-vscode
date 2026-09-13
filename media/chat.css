@@ -3829,7 +3829,16 @@ textarea#input {
   font: inherit; text-align: left;
 }
 .model-picker button.toolbar-popover-item:hover { background: var(--vscode-list-hoverBackground); }
-.model-picker button:disabled { opacity: .45; cursor: default; }
+/* Locked is not faded. `opacity` here made the whole picker look half-erased
+   over the transcript for the length of a turn (owner, 2026-09-13: "this should
+   never be semi-transparent. Like during a round. It just looks bad") -- and it
+   washed out the effort ramp, whose colour IS the readout. Say it in the text
+   colour instead and leave the dots and the gradient at full strength; the
+   `disabled` attribute is what actually stops the interaction. */
+.model-picker button:disabled {
+  cursor: default;
+  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+}
 .model-picker button:disabled:hover { background: transparent; }
 .model-picker button:focus-visible, .context-compact:focus-visible {
   outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px;
