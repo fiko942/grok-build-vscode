@@ -1,5 +1,35 @@
 # Changelog
 
+## 4.6.0 — 2026-09-13
+
+**The control under the message box stops being an anonymous cog.** It says which model is answering and how hard it is thinking, right there on the button, and opens the picker rather than a menu you then navigate. Effort became a strip you can drag instead of five dots with no scale attached. The picker now stays open while you change your mind — pick a model, then pick an effort, one visit — and both changes leave together when you close it. Alongside that, three things that were plainly wrong on a phone: effort changes that appeared not to save, a picker that went half-transparent for the length of a turn, and a context breakdown that broke numbers in half.
+
+### Added
+
+- **A composer chip that names what it holds.** Which model is answering and what effort it is running at, on the face of the button, where it used to take a click and a menu to find out. Clicking it opens the model picker directly. The mode button beside it is unchanged.
+
+- **Effort is a strip, and you can drag it.** Five dots are a quantity with no scale attached; this is a rail with a gradient and a knob, and the stops come from what the model you are on actually advertises — so the ladder matches the model rather than a fixed list. Drag it with a finger or a mouse, or tap a stop. One effort is one colour on every surface: the same four anchors are declared in the extension, the desktop app and the web client.
+
+- **The microphone moved out of the message box.** It sat inside the text area, so every line of a long prompt was indented around a button that only matters at the start. It is in the toolbar now, and the text takes the full width.
+
+### Changed
+
+- **The picker stays open when you pick a model.** Choosing one used to close it, so "this model at that effort" cost two visits — and the second could not start until the first had finished restarting the conversation. Now the chip and the strip update the moment you tap, the popover stays up, and the change is committed once when you close it. Reopen it before it has landed and you see what you picked, not the value being replaced.
+
+- **Model and effort leave as one message, and cost at most one restart.** When a single visit changes both, they travel together rather than racing each other, and if the model change has to restart the conversation the effort rides that restart instead of asking for a second one. Pressing **Send** with the picker still open commits it first, so the prompt runs on the model you just chose and not the one you replaced — and a send waits for the change to land. If applying it needs a restart and the app asks you about it, the send stops waiting and goes to the conversation you are in, because a question on screen must never quietly swallow what you typed.
+
+- **The context ledger says thousands as thousands.** `1.48K`, `10.28K`, `499K`, `1.2M` — two decimals below a hundred thousand and none above it, with the exact figure still in the donut's own tooltip. Numbers under a thousand are short enough to say outright and are left alone.
+
+### Fixed
+
+- **Changing effort on a phone sticks.** Reported as "starts saving, refreshes, then nothing happens", and the control could not be moved twice. All of it was one mechanism: on a conversation with no history the app restarts the session to change effort, which locked the control mid-gesture and made every correction after the first disappear in silence. The strip now previews while it is open and commits once, at the end, with the level you actually landed on — which is also one restart instead of one per stop your finger crossed on the way.
+
+- **Effort no longer snaps back on Codex.** The conversation announced the CLI's own configured default a moment before the requested level was applied, and nothing told the display — so the strip redrew at whatever `~/.codex/config.toml` says and stayed there, which reads exactly like the change was never saved.
+
+- **The picker stops going half-transparent while an answer streams.** Selection is locked for the length of a turn, and that was being said with opacity — over a transcript on a phone it read as a half-erased panel rather than a locked one, and it washed out the effort gradient, whose colour is the whole readout. Locked is a text colour now.
+
+- **The context breakdown stops breaking numbers in half on a phone.** `10,284` was arriving as "10,28" and then "4" on the next line. The popover is shrink-to-fit, and the rule that lets long version strings wrap in the same rows had collapsed it toward the width of a single character; it now asks for the width its contents want, and a figure is one word whatever its label does.
+
 ## 4.5.0 — 2026-09-11
 
 **Steer stops being a Grok feature, and every installer starts aiming at the version this app tells you to be on.** Codex hears a mid-turn correction now, attachments and all. Both ACP adapters moved — Codex ten minors, Claude seven — behind a new gate that drives the real adapters against your own CLIs instead of a stand-in. And a chain of small dishonesty around CLI versions is gone: the Providers row named a version, every installer fetched whatever was newest instead, and pressing **Update** stopped every session on that provider to install something already on disk.
