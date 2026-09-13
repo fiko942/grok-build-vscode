@@ -346,6 +346,7 @@ import {
   findSessionCatalogCwd,
   forkDisplayName,
   indexSessions,
+  SessionIndexEntry,
   isEmptySession,
   isPathInside,
   isRepoColor,
@@ -812,6 +813,10 @@ export class GrokSidebar {
    *  one in-flight build. Open tabs are layered on at read time. */
   private mentionIndex: { at: number; rels: string[]; absByRel: Map<string, string> } | null = null;
   private mentionIndexPromise: Promise<{ rels: string[]; absByRel: Map<string, string> }> | null = null;
+  /** In-memory cache for repo catalog to eliminate sync disk stat spikes on session switches. */
+  private repoCatalogCache: { at: number; entries: RepoListEntry[] } | null = null;
+  /** In-memory cache for session indexes per repo cwd. */
+  private readonly sessionIndexCache = new Map<string, { at: number; entries: SessionIndexEntry[] }>();
   private readonly remoteMentionIndexes = new Map<string, {
     at: number;
     rels: string[];
@@ -5972,7 +5977,35 @@ Only continue if you trust this code.`,
     return true;
   }
 
+  private invalidateRepoCatalog(): void {
+    this.repoCatalogCache = null;
+  }
+
+  private invalidateSessionIndex(cwd?: string): void {
+    if (cwd) {
+      this.sessionIndexCache.delete(normalizeRepoPath(cwd));
+    } else {
+      this.sessionIndexCache.clear();
+    }
+  }
+
+  private cachedIndexSessions(cwd: string, grokHome: string, log: (m: string) => void): SessionIndexEntry[] {
+    const key = normalizeRepoPath(cwd);
+    const now = Date.now();
+    const hit = this.sessionIndexCache.get(key);
+    if (hit && now - hit.at < 3500) {
+      return hit.entries;
+    }
+    const entries = indexSessions({ fs: defaultFs, grokHome, cwd, log });
+    this.sessionIndexCache.set(key, { at: now, entries });
+    return entries;
+  }
+
   private repoCatalog() {
+    const now = Date.now();
+    if (this.repoCatalogCache && now - this.repoCatalogCache.at < 5000) {
+      return this.repoCatalogCache.entries;
+    }
     const pins = this.state.get<RepoPins>(REPO_PINS_KEY, {});
     const worktreeLabels = new Map<string, string>();
     for (const o of Object.values(this.state.get<SessionMetaOverrides>(SESSION_META_KEY, {}))) {
@@ -6010,17 +6043,16 @@ Only continue if you trust this code.`,
     // project invisible but still authorized — the row would be gone while the
     // phone carried on browsing and editing it.
     const removed = this.removedProjectFolderKeys();
-    if (!removed.size) return discovered;
-    // A folder VS Code actually has OPEN outranks its own tombstone. Removal
-    // refuses to tombstone the open folder, but one written while the folder was
-    // CLOSED still applied when it was opened later: the project vanished from
-    // the rail, `postRepoCatalog` silently selected a different one, so History
-    // and New Session pointed somewhere other than the Explorer — while the root
-    // stayed authorized for remotes the whole time, invisibly. Opening a folder
-    // is a louder statement of intent than having once removed its row.
-    for (const open of this.openWorkspaceFolders()) removed.delete(normalizeRepoPath(open));
-    if (!removed.size) return discovered;
-    return discovered.filter((r) => !removed.has(normalizeRepoPath(r.cwd)));
+    let result: RepoListEntry[];
+    if (!removed.size) {
+      result = discovered;
+    } else {
+      for (const open of this.openWorkspaceFolders()) removed.delete(normalizeRepoPath(open));
+      if (!removed.size) result = discovered;
+      else result = discovered.filter((r) => !removed.has(normalizeRepoPath(r.cwd)));
+    }
+    this.repoCatalogCache = { at: now, entries: result };
+    return result;
   }
 
   /**
@@ -6582,6 +6614,8 @@ Only continue if you trust this code.`,
       // extension host — conversations included. So the folder joins the rail's
       // catalog and nothing else moves: the Explorer, the open folder and every
       // running session stay exactly where they were.
+      this.invalidateRepoCatalog();
+      this.invalidateSessionIndex(resolved);
       await this.rememberExtraProjectFolder(resolved);
       return;
     }
@@ -6590,6 +6624,8 @@ Only continue if you trust this code.`,
       return;
     }
     this.authEpoch++;
+    this.invalidateRepoCatalog();
+    this.invalidateSessionIndex(resolved);
     await this.switchLocalWorkspaceFolder(resolved);
     // 0 → 1 folders is not "browse another project" — there is no conversation
     // to protect. Start one in the folder just added so Add project folder
@@ -7310,6 +7346,8 @@ Only continue if you trust this code.`,
     // has left the authorized set, or a concurrent remote send could still route
     // into a doomed session.
     this.revokeClosedProjectFolder(cwd);
+    this.invalidateRepoCatalog();
+    this.invalidateSessionIndex(cwd);
     if (!this.pool.has(this.focused) && !this.focused.client) {
       this.focused = this.newLocalSession();
       this.emit(this.focused, { type: "clearMessages" });
@@ -7646,6 +7684,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
     const next = { ...pins };
     if (pinned) next[key] = { cwd: hit.cwd, pinnedAt: Date.now() };
     else delete next[key];
+    this.invalidateRepoCatalog();
     await this.state.update(REPO_PINS_KEY, next);
     this.postRepoCatalog();
   }
@@ -7660,6 +7699,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
     if (!hit) return;
     const archives = this.state.get<RepoArchives>(REPO_ARCHIVES_KEY, {});
     const key = normalizeRepoPath(hit.cwd);
+    this.invalidateRepoCatalog();
     await this.state.update(REPO_ARCHIVES_KEY, {
       ...archives,
       [key]: { cwd: hit.cwd, at: Date.now(), archived },
@@ -7679,6 +7719,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
     const next: RepoColors = { ...colors };
     if (color === "") delete next[key];
     else next[key] = { cwd: hit.cwd, color };
+    this.invalidateRepoCatalog();
     await this.state.update(REPO_COLORS_KEY, next);
     this.postRepoCatalog();
   }
@@ -13197,7 +13238,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
     const index = mergeSessionIndexes(
       repoCwds.map((c) => ({
         cwd: c,
-        entries: indexSessions({ fs: defaultFs, grokHome, cwd: c, log }),
+        entries: this.cachedIndexSessions(c, grokHome, log),
       })),
     );
     const mtimeById = new Map(index.map((e) => [e.id, e.mtimeMs]));
@@ -13615,6 +13656,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
     // A rename changes displayName but not summary.json's mtime, so the mtime-keyed cache would
     // otherwise keep serving the old name. Drop it so the next read rebuilds the entry.
     this.sessionCache.delete(id);
+    this.invalidateSessionIndex();
     for (const adapter of (["codex", "claude"] as const)) {
       const history = this.adapterHistory(adapter);
       if (!history) continue;
@@ -13951,6 +13993,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
     // directory.
     if (live) live.deleted = true;
     this.sessionCache.delete(id);
+    this.invalidateSessionIndex(cwd);
     this.removePlanReviews(id); // snapshots live outside grok's session dir
     const overrides = this.state.get<SessionMetaOverrides>(SESSION_META_KEY, {});
     await this.removeUploadsForSessions([id], overrides);
@@ -14226,8 +14269,8 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
       this.focused = this.newLocalSession();
       await this.startSession();
     }
+    this.invalidateSessionIndex(cwd);
     this.postSessionsList();
-    // `postSessionsList` only refreshes the project the client has SELECTED, so
     // clearing any other one left the rail showing every row it had just deleted
     // — no confirmation, and a later delete on one of those ghosts failed with a
     // permissions error that was really "this is not there any more".
