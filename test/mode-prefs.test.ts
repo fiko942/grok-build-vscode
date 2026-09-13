@@ -47,7 +47,11 @@ describe("effort picker persistence", () => {
     session.provider = provider;
     session.cwd = "/project";
     session.hasHistory = true;
-    session.client = { currentModelSupportsEffort: () => true, setReasoningEffort: vi.fn(async () => true) } as any;
+    session.client = {
+      currentReasoningEffort: "high",
+      currentModelSupportsEffort: () => true,
+      setReasoningEffort: vi.fn(async (level) => { session.client!.currentReasoningEffort = level; return true; }),
+    } as any;
     const values: Record<string, unknown> = {};
     const cfg = { get: () => "high", update: vi.fn(async () => {}) };
     sidebar.focused = session;
@@ -57,6 +61,8 @@ describe("effort picker persistence", () => {
       update: vi.fn(async (key: string, value: unknown) => { values[key] = value; }),
     };
     sidebar.workspaceRoot = () => "/project";
+    sidebar.context = { extensionVersion: "test" };
+    sidebar.emit = vi.fn();
     sidebar.startSession = vi.fn();
     sidebar.restartSession = vi.fn();
     sidebar.discardAdapterEmptySession = vi.fn();
@@ -76,6 +82,12 @@ describe("effort picker persistence", () => {
       expect(values["grok.defaultEffortByProvider"]).toEqual({ [provider]: "low" });
     }
     expect(sidebar.restartSession).not.toHaveBeenCalled();
+    // Nothing is emitted back. `emit` buffers into the session replay and fans
+    // to every remote holder, and `initialState` is action-shaped there — a
+    // phone reads it as "restore the remembered conversation" and reloads its
+    // own transcript. The chip is optimistic and reconciles on the next real
+    // `initialState`, which is what the effort dots did before it.
+    expect(sidebar.emit).not.toHaveBeenCalled();
   });
 
   it.each([false, true])("remembers an adapter reset for the restart path (empty=%s)", async (empty) => {
@@ -95,5 +107,122 @@ describe("effort picker persistence", () => {
     await sidebar.onMessage({ type: "setEffort", level: "low" }, "local");
     expect(sidebar.state.update).not.toHaveBeenCalled();
     expect(cfg.update).not.toHaveBeenCalled();
+    expect(sidebar.emit).not.toHaveBeenCalled();
+  });
+
+  it.each(["grok", "claude", "codex"] as const)("warns a remote %s effort change and sends it no session frame", async (provider) => {
+    const { sidebar, session } = picker(provider);
+    session.client!.currentModelSupportsEffort = () => false;
+    sidebar.remoteClients = { active: () => session, cwd: () => "/project" };
+    sidebar.captureRemoteRequester = () => ({ clientId: "phone", session });
+    sidebar.reportRequester = vi.fn();
+    await sidebar.onMessage({ type: "setEffort", level: "low" }, "remote", "phone");
+    expect(sidebar.reportRequester).toHaveBeenCalled();
+    expect(sidebar.restartSession).not.toHaveBeenCalled();
+    // The refusal is a warning, not a frame. Anything sent through `emit` here
+    // reaches the phone AND its replay buffer; `initialState` in particular
+    // makes the phone re-resume, clearing and replaying its own transcript.
+    expect(sidebar.emit).not.toHaveBeenCalled();
+  });
+
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("applies the model BEFORE the effort when one close of the picker changed both", async () => {
+    const { sidebar, session, values } = picker("codex");
+    const order: string[] = [];
+    sidebar.switchModel = vi.fn(async () => { order.push("model"); });
+    vi.mocked(session.client!.setReasoningEffort)
+      .mockImplementation(async () => { order.push("effort"); return true; });
+
+    await sidebar.onMessage(
+      { type: "setModel", modelId: "gpt-6-astra", provider: "codex", effort: "high" },
+      "local",
+    );
+
+    // A switch carries a live effort override through when the target offers
+    // it, so the level has to be applied after the model, not before.
+    expect(order).toEqual(["model", "effort"]);
+    expect(values["grok.defaultEffortByProvider"]).toEqual({ codex: "high" });
+  });
+
+  it("changes nothing about effort when setModel carries no level", async () => {
+    const { sidebar, session } = picker("codex");
+    sidebar.switchModel = vi.fn(async () => {});
+    await sidebar.onMessage({ type: "setModel", modelId: "gpt-6-astra", provider: "codex" }, "local");
+    expect(session.client!.setReasoningEffort).not.toHaveBeenCalled();
+  });
+
+  it("holds a send until the picker's commit has landed", async () => {
+    const { sidebar } = picker("codex");
+    let land!: () => void;
+    sidebar.switchModel = vi.fn(() => new Promise<void>((resolve) => { land = resolve; }));
+    const reached: string[] = [];
+    // The first thing handleSend does after settling the picker.
+    sidebar.waitForSessionStart = vi.fn(async () => { reached.push("send"); throw new Error("far enough"); });
+
+    void sidebar.onMessage({ type: "setModel", modelId: "gpt-6-astra", provider: "codex" }, "local");
+    await tick();
+    const send = sidebar.handleSend("hello").catch(() => {});
+    await tick();
+    expect(reached).toEqual([]); // "This must happen before the message is sent."
+
+    land();
+    await send;
+    expect(reached).toEqual(["send"]);
+  });
+
+  it("leaves a summarized restart alone instead of finishing it off as an empty session", async () => {
+    const { sidebar, session, cfg } = picker("grok");
+    session.activeSessionId = "before";
+    // What Summarize & Restart leaves behind: a session that HOLDS the summary,
+    // and whose `hasHistory` the restart's own startSession has just cleared.
+    sidebar.switchModel = vi.fn(async () => {
+      session.activeSessionId = "holds-the-summary";
+      session.hasHistory = false;
+    });
+
+    await sidebar.onMessage(
+      { type: "setModel", modelId: "grok-composer-2.5", effort: "low" },
+      "local",
+    );
+
+    // Read as empty, that session was restarted again and deleted on disk --
+    // the person asked to keep the thread and got a blank one.
+    expect(sidebar.startSession).not.toHaveBeenCalled();
+    expect(sidebar.discardRestartedEmptySession).not.toHaveBeenCalled();
+    expect(session.client!.setReasoningEffort).not.toHaveBeenCalled();
+    expect(session.activeSessionId).toBe("holds-the-summary");
+    // The restart still spawned at the level the picker was showing, because
+    // it is remembered BEFORE the switch rather than applied after it.
+    expect(cfg.update).toHaveBeenCalledWith("defaultEffort", "low", "global");
+  });
+
+  it("does not let a restart prompt nobody answers swallow the send behind it", async () => {
+    const { sidebar, session } = picker("claude");
+    vi.mocked(session.client!.setReasoningEffort).mockResolvedValue(false);
+    delete sidebar.pickRestartMode; // the real one, which releases the wait
+    sidebar.host.showInformationMessage = vi.fn(() => new Promise(() => {}));
+    const reached: string[] = [];
+    sidebar.waitForSessionStart = vi.fn(async () => { reached.push("send"); throw new Error("far enough"); });
+
+    void sidebar.onMessage({ type: "setEffort", level: "low" }, "local");
+    await tick();
+    expect(sidebar.host.showInformationMessage).toHaveBeenCalled();
+
+    await sidebar.handleSend("hello").catch(() => {});
+    expect(reached).toEqual(["send"]);
+  });
+
+  it("ignores a change fired mid-session-start, and a dismissed reset persists nothing", async () => {
+    const { sidebar, session, cfg } = picker("grok");
+    session.priming = true;
+    await sidebar.onMessage({ type: "setEffort", level: "low" }, "local");
+    expect(session.client!.setReasoningEffort).not.toHaveBeenCalled();
+    session.priming = false;
+    sidebar.pickRestartMode.mockResolvedValue(undefined);
+    await sidebar.onMessage({ type: "setEffort", level: "" }, "local");
+    expect(sidebar.restartSession).not.toHaveBeenCalled();
+    expect(cfg.update).not.toHaveBeenCalled();
+    expect(sidebar.emit).not.toHaveBeenCalled();
   });
 });

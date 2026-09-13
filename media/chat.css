@@ -1,4 +1,9 @@
 ﻿:root {
+  /* Effort scale: chart hues, cool to warm. */
+  --e1: #4ec9b0;
+  --e2: #3794ff;
+  --e3: #a978f5;
+  --e4: #f48771;
   --pad: 8px;
   --gap: 6px;
   --radius: 6px;
@@ -37,6 +42,13 @@
   --repo-color-amber: color-mix(in oklab, oklch(0.76 0.14 85) 72%, var(--vscode-foreground) 28%);
   --repo-color-coral: color-mix(in oklab, oklch(0.68 0.15 30) 72%, var(--vscode-foreground) 28%);
   --repo-color-purple: color-mix(in oklab, oklch(0.64 0.15 305) 72%, var(--vscode-foreground) 28%);
+}
+
+body.vscode-light {
+  --e1: #1a8f7d;
+  --e2: #1a85ff;
+  --e3: #8250df;
+  --e4: #cd3131;
 }
 
 /* The VS Code panel is a narrow column, and the same gutter that reads as
@@ -1270,11 +1282,30 @@ a:hover {
 /* Shrink-to-fit otherwise takes the fineprint as one line (Claude/Codex
    "Last prompt" copy is long). 350px still reads on the phone profile. */
 #context-popover {
+  /* Shrink-to-fit plus `overflow-wrap: anywhere` on the rows sizes this box
+     toward MIN-content, which is what split 10,284 into "10,28" and "4" on a
+     phone: the cap was never the binding constraint, the intrinsic width was.
+     Ask for the content's natural width and let max-width do the capping. */
+  width: max-content;
   max-width: 350px;
   box-sizing: border-box;
 }
+/* 350px is a desk number. On a phone the rows want more, and the ask was for
+   up to 80% of the screen before anything wraps -- which this cap already
+   clears, so it stays where it is and `width: max-content` above is what
+   actually lets the box take it. */
+@media (hover: none), (pointer: coarse) {
+  #context-popover { max-width: min(94vw, 420px); }
+}
 #context-popover .popover-fineprint,
 #context-popover .popover-info { white-space: normal; }
+/* A figure is one word however the label behaves: `overflow-wrap: anywhere` is
+   there for long version strings in the About panel, and applied to a number it
+   breaks it mid-digits. Wrapping is the label's job. */
+#context-popover .popover-info > :last-child {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
 /* .history-popover sets display:flex, which would otherwise beat the UA
    [hidden]{display:none} rule (author styles win), so it could never hide. */
 .toolbar-popover[hidden] { display: none; }
@@ -3480,8 +3511,8 @@ body.hide-turn-diff-summary .turn-diff-summary { display: none; }
    the backdrop renders a mirrored copy with the command wrapped in an accent
    pill; the textarea sits on top with a transparent background so the pill shows
    through behind the matching words. Border + fill + focus ring belong to the
-   enclosing .composer-card; the wrap stays position:relative because the mic
-   button and the highlight backdrop anchor to the textarea's box. */
+   enclosing .composer-card; the wrap stays position:relative for the highlight backdrop. The mic
+   belongs to the toolbar, so every text line gets the full input width. */
 .composer-input-wrap {
   position: relative;
 }
@@ -3490,8 +3521,7 @@ body.hide-turn-diff-summary .turn-diff-summary { display: none; }
 textarea#input,
 .input-highlight {
   margin: 0;
-  /* extra right padding leaves room for the mic button in the top-right corner */
-  padding: 6px 34px 6px 8px;
+  padding: 6px 8px;
   border: 0;
   /* UI font, not the editor's monospace ÔÇö typed text should look like the
      user message it becomes (textareas default to monospace otherwise). */
@@ -3545,29 +3575,10 @@ textarea#input {
   box-shadow: 0 0 0 1px var(--vscode-charts-blue, #3794ff);
 }
 
-/* ---- mic / voice-input button (top-right corner of the textbox) ---- */
+/* ---- mic / voice-input button (ordinary toolbar icon tier) ---- */
 
 .mic-btn {
-  /* Anchored inside .composer-input-wrap (position:relative) so it tracks the
-     textarea's top-right corner ÔÇö not the composer, which grows when the
-     attachments row appears above the input (that made the mic "jump"). */
-  position: absolute;
-  top: 5px;
-  right: 6px;
-  /* Above the textarea (z-index:1) so its top-right padding doesn't swallow the
-     hover/click ÔÇö the textarea was lifted for the highlight overlay. */
-  z-index: 2;
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--vscode-descriptionForeground, var(--vscode-foreground));
-  cursor: pointer;
+  position: relative; /* The setup badge belongs to the button. */
   opacity: 0.75;
   transition: background 0.12s, color 0.12s, opacity 0.12s;
 }
@@ -3732,89 +3743,182 @@ textarea#input {
   text-overflow: ellipsis;
 }
 
-/* Once the card is too narrow to give the prose a useful home, keep the
-   distinct mode glyph and context arc while reclaiming the label widths before
-   the existing flex ellipsis can abbreviate them. */
-@container composer-card (max-width: 360px) {
-  #mode-btn .btn-label,
-  .context-donut #donut-label {
-    display: none;
+/* The card's CONTENT box drives one ladder on every surface. The outer
+   composer includes its gutter and the card border; a 334px IDE composer has
+   a 324px query box. Keep the container here: fixed rail popovers are siblings
+   and must not acquire a new containing block. */
+#gear-btn.model-chip {
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 5px;
+  padding: 0 7px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.model-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.model-chip-effort { flex: none; color: var(--vscode-descriptionForeground); }
+.model-chip-effort:empty { display: none; }
+#chips:empty { display: none; }
+.composer-effort-notice {
+  position: absolute; bottom: calc(100% + 4px); left: var(--pad); right: var(--pad);
+  padding: 8px 10px; border: 1px solid var(--vscode-editorWidget-border); border-radius: 6px;
+  background: var(--vscode-editorWidget-background); color: var(--vscode-foreground);
+  font-size: 12px; z-index: 50;
+}
+.composer-effort-notice:empty { display: none; }
+/* The donut's own numbers are the FIRST rung, above the mode word: they are the
+   one readout here that nothing in the message depends on, and the donut's
+   tooltip and its popover both still carry them in full. Wide surfaces keep
+   them — the chip's width pressure is real at 334px, not at 640px. */
+@container composer-card (max-width: 470px) {
+  .context-donut #donut-label { display: none; }
+}
+@container composer-card (max-width: 430px) {
+  #mode-btn .btn-label { display: none; }
+}
+@container composer-card (max-width: 300px) {
+  .model-chip-effort { display: none; }
+}
+@container composer-card (max-width: 272px) {
+  .model-chip-name { max-width: 66px; }
+}
+/* The name is the chip's whole content now, so the narrowest rung trims it
+   rather than hiding it -- the glyph that used to stand in its place is gone. */
+@container composer-card (max-width: 224px) {
+  .model-chip-name { max-width: 44px; }
+}
+@media (hover: none), (pointer: coarse) {
+  /* min-width, not just height: the mode word is the first rung of the collapse
+     ladder, so on a phone this button is its glyph alone — and a 32px-wide
+     glyph button is under the tap floor the rest of the app is held to. */
+  #gear-btn.model-chip, #mode-btn { height: 36px; font-size: 15px; }
+  #mode-btn { min-width: 36px; justify-content: center; }
+  /* Unconditional touch rule: effort is one tap away in the chip. */
+  .model-chip-effort { display: none; }
+  @container composer-card (max-width: 296px) {
+    .model-chip-name { max-width: 82px; }
+  }
+  /* The final rungs reclaim spacing too. Six toolbar controls still need
+     real hit targets when the composer itself is only 240px wide. */
+  @container composer-card (max-width: 272px) {
+    .composer-toolbar { padding-left: 0; padding-right: 0; gap: 2px; }
+    .toolbar-right { gap: 2px; }
+    #gear-btn.model-chip { padding: 0 2px; gap: 2px; min-width: 36px; }
+  }
+  @container composer-card (max-width: 250px) {
+    .model-chip-name { max-width: 52px; }
   }
 }
 
-/* ---- gear popover: model + effort row ---- */
-
+/* ---- model picker: pinned strip, scrolling models, pinned recovery ---- */
 .gear-popover { min-width: 230px; }
-
-.model-effort-row {
+#gear-popover.model-picker {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 4px 6px;
-}
-.model-name-btn {
-  flex-shrink: 1;
+  flex-direction: column;
+  overflow: hidden;
+  width: 300px;
   min-width: 0;
-  padding: 3px 5px;
-  font-size: 13px;
+  max-width: 100%;
+  max-height: min(420px, 70vh);
 }
+#gear-popover.model-picker[hidden] { display: none; }
+.model-picker > :not(.model-picker-list) { flex: none; }
+.model-picker-list { flex: 1 1 auto; min-height: 0; max-height: 230px; overflow-y: auto; }
+.model-picker button.toolbar-popover-item {
+  width: 100%; border: 0; background: transparent; color: inherit;
+  font: inherit; text-align: left;
+}
+.model-picker button.toolbar-popover-item:hover { background: var(--vscode-list-hoverBackground); }
+/* Locked is not faded. `opacity` here made the whole picker look half-erased
+   over the transcript for the length of a turn (owner, 2026-09-13: "this should
+   never be semi-transparent. Like during a round. It just looks bad") -- and it
+   washed out the effort ramp, whose colour IS the readout. Say it in the text
+   colour instead and leave the dots and the gradient at full strength; the
+   `disabled` attribute is what actually stops the interaction. */
+.model-picker button:disabled {
+  cursor: default;
+  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+}
+.model-picker button:disabled:hover { background: transparent; }
+.model-picker button:focus-visible, .context-compact:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px;
+}
+.model-effort-strip { padding: 6px 6px 4px; }
+.effort-strip-header { display: flex; align-items: center; gap: 8px; padding: 0 2px; }
+.effort-strip-header > span { color: var(--vscode-descriptionForeground); }
+.effort-reset {
+  margin-left: auto; height: 24px; padding: 0 6px; border: 0;
+  border-radius: 5px; background: transparent; color: var(--vscode-descriptionForeground);
+  font: inherit; cursor: pointer;
+}
+.effort-reset:hover { background: var(--vscode-toolbar-hoverBackground); }
+.effort-strip-track {
+  position: relative; height: 34px; margin: 2px 2px 0;
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; align-items: center;
+  /* The knob is draggable, so the browser must not claim the gesture as a
+     scroll the moment the finger moves vertically -- on a phone it always does.
+     `none` on the track covers the stops too, but they set it themselves
+     because a press that starts ON a dot is the common case. */
+  touch-action: none; user-select: none;
+}
+/* Rail and fill share a box. Clip the gradient slice, never compress it by
+   sizing the fill's width: the same effort must always have the same colour. */
+.effort-strip-rail, .effort-strip-fill {
+  position: absolute; top: 50%; height: 5px; margin-top: -2.5px; border-radius: 3px;
+  left: calc(50% / var(--n)); right: calc(50% / var(--n));
+}
+.effort-strip-rail { background: var(--vscode-editorWidget-border); }
+.effort-strip-fill {
+  background: linear-gradient(90deg, var(--e1), var(--e2) 38%, var(--e3) 70%, var(--e4));
+  clip-path: inset(0 calc((1 - var(--f)) * 100%) 0 0);
+  transition: clip-path 160ms ease;
+}
+.effort-strip-stop {
+  height: 34px; padding: 0; border: 0; background: transparent; cursor: pointer;
+  display: grid; place-items: center; position: relative; z-index: 1;
+  touch-action: none;
+}
+.effort-strip-stop.current { cursor: grab; }
+.effort-strip-track:active .effort-strip-stop.current { cursor: grabbing; }
+.effort-strip-stop i {
+  width: 8px; height: 8px; border-radius: 50%; display: block;
+  background: var(--vscode-editorWidget-border);
+  transition: width 160ms ease, height 160ms ease;
+}
+.effort-strip-stop.past i { background: var(--vscode-editorWidget-background); opacity: .6; }
+.effort-strip-stop.current i {
+  width: 16px; height: 16px; background: var(--knob);
+  box-shadow: 0 0 0 3px var(--vscode-editorWidget-background), 0 1px 4px rgba(0,0,0,.35);
+}
+.effort-strip-tip { font-size: 11.5px; color: var(--vscode-descriptionForeground); padding: 2px 4px 0; min-height: 16px; }
+@media (prefers-reduced-motion: reduce) {
+  .effort-strip-fill, .effort-strip-stop i { transition: none; }
+}
+@media (hover: none), (pointer: coarse) {
+  .model-picker-list { max-height: none; }
+  .effort-strip-track, .effort-strip-stop { height: 42px; }
+  .effort-strip-stop.current i { width: 20px; height: 20px; }
+  .effort-strip-rail, .effort-strip-fill { height: 6px; margin-top: -3px; }
+  .model-picker button.toolbar-popover-item { min-height: 40px; }
+}
+#mode-btn.disabled { opacity: .45; cursor: not-allowed; pointer-events: none; }
 
-.effort-dots {
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
-  flex-shrink: 0;
+.context-fullness {
+  height: 6px; border-radius: 3px; background: var(--vscode-panel-border);
+  margin: 2px 8px 8px; overflow: hidden;
 }
-.effort-dot {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  user-select: none;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border-radius: 50%;
-  opacity: 0.6;
-  box-sizing: border-box;
+.context-fullness > i { display: block; height: 100%; background: var(--context-fill); }
+.context-compact {
+  display: block; width: calc(100% - 16px); margin: 2px 8px 8px;
+  text-align: center; padding: 0 10px; height: 28px; border: 0; border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground, #3a3d41);
+  color: var(--vscode-button-secondaryForeground, #fff);
+  font: inherit; font-weight: 500; cursor: pointer;
 }
-/* Inner CSS-shaped dot ÔÇö identical size for active + inactive. Avoids the
-   Unicode ÔŚĆ/ÔŚő glyph-pair mismatch where the empty circle renders larger. */
-.effort-dot::before {
-  content: "";
-  display: block;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  box-sizing: border-box;
-  border: 1.5px solid var(--vscode-descriptionForeground);
-  background: transparent;
-}
-/* Same reason as .popover-check: `button.background` is hcDark BLACK, which
-   made the filled dots vanish on the high-contrast background (#139). */
-.effort-dot.active::before {
-  background: var(--vscode-textLink-foreground, #3794ff);
-  border-color: var(--vscode-textLink-foreground, #3794ff);
-}
-.effort-dot:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
-.effort-dot.active { opacity: 1; }
-
-/* Model + effort are locked while the session is busy/priming (mirrors the
-   disabled send button). No pointer, no hover affordance. */
-.model-name-btn.disabled,
-#mode-btn.disabled,
-.effort-dot.disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-.effort-dot.disabled:hover { background: transparent; }
-/* Loading placeholder dots ÔÇö a gentle pulse while the session's model/effort
-   menu is still loading (so it reads as "not final yet", not a real ladder). */
-.effort-dot.loading { opacity: 0.3; animation: effort-dot-pulse 1.2s ease-in-out infinite; }
-@keyframes effort-dot-pulse { 0%, 100% { opacity: 0.2; } 50% { opacity: 0.5; } }
-@media (prefers-reduced-motion: reduce) { .effort-dot.loading { animation: none; } }
+.context-compact:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e); }
+.context-compact:disabled { opacity: .5; cursor: default; }
+.context-compact:disabled:hover { background: var(--vscode-button-secondaryBackground, #3a3d41); }
+@media (hover: none), (pointer: coarse) { .context-compact { height: 38px; } }
 
 /* ---- mode / section popover extras ---- */
 
@@ -5456,7 +5560,19 @@ body.vscode-light .preview-overlay {
 @media (hover: none), (pointer: coarse) {
   .toolbar-btn svg { width: 18px; height: 18px; }
   .context-donut svg { width: 22px; height: 22px; }
+  /* Must be HERE, not in the composer's own touch block above: `.context-donut`
+     is declared later in this file at the same specificity, so an earlier copy
+     of these two lines is simply overwritten. */
+  .context-donut { min-width: 36px; height: 36px; justify-content: center; }
   #donut-label { display: none; }
+  /* Six controls at a 36px tap floor need 224px of pure button and this rung
+     has less. The donut goes rather than something shrinking below the floor:
+     it is the readout the ladder already drops first, its numbers live in its
+     own tooltip and popover, and a control too small to hit is worse than one
+     that is honestly not there. */
+  @container composer-card (max-width: 250px) {
+    .context-donut { display: none; }
+  }
 }
 
 /* Touch devices: both floating controls match the 36px control row — one token

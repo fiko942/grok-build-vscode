@@ -476,6 +476,24 @@ export class AcpClient extends EventEmitter {
       this.availableModels.find((m) => m.modelId === this.currentModelId)?.reasoningEffort ||
       this.opts.effort ||
       undefined;
+    // Adapters take effort as an RPC AFTER session/new (below), so what the CLI
+    // just advertised is its own config default -- while `session` is the frame
+    // that publishes the catalog the picker reads. Emitting the default and
+    // applying the request a moment later is why a Codex effort change snapped
+    // back: the strip showed gpt-6-astra's configured `ultra` again, and nothing
+    // afterwards corrects it (setReasoningEffort emits no event, and the
+    // `modelChanged` a model switch emits keeps an in-ladder level). Publish the
+    // level this session is about to be configured with -- but only one the
+    // model actually offers, since an off-menu level is refused below and the
+    // CLI's own value is then the honest thing to show.
+    const requestedEffort = this.opts.effort;
+    if (requestedEffort && this.provider !== "grok") {
+      const current = this.availableModels.find((m) => m.modelId === this.currentModelId);
+      if (current?.reasoningEfforts?.includes(requestedEffort)) {
+        this.currentReasoningEffort = requestedEffort;
+        current.reasoningEffort = requestedEffort;
+      }
+    }
     this.emit("session", res);
 
     if (modelId && modelId !== this.currentModelId) {
