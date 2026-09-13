@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.5.2 — 2026-09-13
+
+**If your project had its own setting for reasoning effort, the picker could not move it.** You dragged the strip, the new level showed while the popover was open, and about a second after you closed it the level went back — to the same one every time, whatever you picked. Reported as "can't set effort level; goes back to 'low'" (#162), and invisible to anyone without such a setting, which is why it took a screen recording to see.
+
+### Fixed
+
+- **The effort you pick is the effort the conversation runs at.** Your choice was written to your user settings while the next session read the value that actually applies here — and a project-level setting outranks a user one. So every change was recorded faithfully somewhere nothing would ever read, the conversation restarted at the project's level, and the strip reconciled to that. The picker now moves the setting wherever it lives, so what you pick is what the conversation gets. The model and mode pickers were written the same way and are fixed with it.
+
+- **One level is called one thing.** The effort strip's header said "Extra high" while the tip directly beneath it said "XHigh", because the tips were spelled out separately from the name. They share it now, and the descriptions in Settings match.
+
 ## 4.5.1 — 2026-09-13
 
 **The control under the message box stops being an anonymous cog.** It says which model is answering and how hard it is thinking, right there on the button, and opens the picker rather than a menu you then navigate. Effort became a strip you can drag instead of five dots with no scale attached. The picker now stays open while you change your mind — pick a model, then pick an effort, one visit — and both changes leave together when you close it. Alongside that, three things that were plainly wrong on a phone: effort changes that appeared not to save, a picker that went half-transparent for the length of a turn, and a context breakdown that broke numbers in half.
