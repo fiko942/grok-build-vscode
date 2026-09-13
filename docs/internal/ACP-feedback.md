@@ -23,11 +23,13 @@ refresh after substantive work. §4 gained three findings and had its method swe
 vary by machine (§9), so §14's two enforcement claims are scoped to that host until a second one
 confirms them. Everything not named here is still 0.2.117 evidence.
 
-**A narrow 1.0.30 pass ran on 2026-09-13** (grok CLI **1.0.30**, one Windows 11 host), driving
-`grok agent stdio` directly rather than through the extension. It added **§16** and touched nothing
-else: two controlled runs of `ask_user_question`, one answered and one left to expire, logging every
-frame stamped from the moment of the ask. No other section was re-run, so everything else keeps the
-build it is labelled with.
+**A narrow 1.0.30 pass ran on 2026-09-13/14** (grok CLI **1.0.30**, one Windows 11 host), driving
+`grok agent stdio` directly rather than through the extension. It added **§16** and **§17** and
+touched nothing else. §16: two controlled runs of `ask_user_question`, one answered and one left to
+expire, logging every frame stamped from the moment of the ask. §17: five prompts through a
+throwaway project, granting `allow_always` once and watching which later commands re-asked, plus
+the same directory driven under two path spellings. No other section was re-run, so everything else
+keeps the build it is labelled with.
 
 **§2's finding first changed shape on 1.0.4 (2026-08-15)**, after a user report: the image-aware
 `read_file` had shipped, but delegating clients could not reach it. That remains true on 1.0.5,
@@ -310,11 +312,14 @@ or rename it `process/usage`.
 
 Related quota gap, **last LIVE-VERIFIED 0.2.103, SOURCE-VERIFIED 2026-07-29, not re-checked on
 0.2.117** (we cannot force a rate-limit without abusing the account): HTTP 429 maps to `-32003`
-without the available retry delay. There is also still no queryable quota surface — eight plausible
-method names (`_x.ai/usage`, `_x.ai/quota`, `_x.ai/limits`, `_x.ai/rate_limits`,
-`_x.ai/account/usage`, `_x.ai/user/usage`, `_x.ai/billing/usage`, `_x.ai/usage/get`) all returned
-`-32601` on 0.2.117. A client can only say "try again later". Please preserve `retry_after_secs` in
-error data and expose account quota independently of per-process token accounting.
+without the available retry delay. Please preserve `retry_after_secs` in error data.
+The account-quota gap is now partly covered: the owner's 2026-09-13 probe verified
+`_x.ai/billing` through our client. It exposes one weekly window through
+`config.creditUsagePercent` and `config.currentPeriod`; plain `x.ai/billing` is
+method-not-found. We consume only that capacity window, using `currentPeriod.end`
+as reset time, and omit financial account detail. See
+[subscription usage](../../research/subscription-usage.md) for the provider
+differences and the event-driven cache that avoids masking prompt idle timeouts.
 
 ## 6. Edit diff delivery is inconsistent, and `old_line` is a post-edit coordinate (archive §2.10)
 
@@ -701,6 +706,65 @@ do nothing".
 `tool_call_update` for an abandonment — `completed` for a tool that never got its input is
 misleading on its own terms. Either one is a small addition and it is the difference between a
 client that can explain itself to the user and one that can only guess.
+
+## 17. "Don't ask again" can only ever grant one exact command string (new)
+
+**LIVE-VERIFIED 1.0.30 (2026-09-14)**, driving `grok agent stdio` directly against a
+throwaway project and logging every `session/request_permission`.
+
+`session/request_permission` for a terminal command offers four options, and we render them
+as given:
+
+    allow_always, allow_once, reject_once, reject_always
+
+Answering `allow_always` persists, and it persists well — the grant lands in
+`~/.grok/sessions/<url-encoded-cwd>/permission.toml` and survives into a **new session**:
+
+    allowed_bash_commands = [
+        "echo probe-one > out-one.txt",
+    ]
+
+| Step | Command | Permission request? |
+|---|---|---|
+| 1 | `echo probe-one > out-one.txt` | yes — answered `allow_always` |
+| 2 | the same command | **no** |
+| 3 | `echo probe-two > out-two.txt` | **yes** |
+| 4 | step 1's command, later in the session | **no** |
+| 5 | step 1's command, **brand new session** | **no** |
+
+**The problem is step 3.** `allowed_bash_commands` is a list of literal strings matched
+exactly, so a grant covers one command and nothing adjacent to it. In an agentic session
+almost every command differs — a different test file, a different path, a different flag —
+so almost every command is a fresh grant. A user who answers "Yes, and don't ask again" a
+hundred times ends with a hundred single-command grants and a hundred-and-first prompt,
+and reasonably concludes the setting does not work.
+
+**The CLI already has the concept we need, and ACP cannot reach it.** The same file carries
+
+    allowed_bash_globs = []
+
+which would express "any `npm` command" in one grant. Nothing in the four permission option
+kinds populates it. We also measured that hand-writing a glob into that file has no effect
+on the ACP path, and neither does `allow_bash_execute = true` — both edits survive in the
+file unrewritten and are simply not consulted here. So the field is real, it is not
+reachable from a client, and it is not reachable by the user either.
+
+**Client cost:** none available. The option list is the CLI's and its wording
+("don't ask again") is the CLI's; a client that substituted its own labels would drift the
+moment the CLI's changed, and would still be granting one string. The only honest thing we
+can do is tell the user this is how it works, which we have done on
+[#123](https://github.com/phuryn/grok-build-vscode/issues/123).
+
+**Ask:** a fifth option kind that grants a family rather than a string — enough to populate
+`allowed_bash_globs`. The pattern could be the CLI's to choose (it already classifies the
+command, so it knows the program and the shape) with the option's own `name` stating it, so
+the client renders whatever the CLI decided to offer and nothing has to be inferred
+client-side.
+
+A secondary note, measured in passing and worth a line: the grant store is keyed on the
+**literal** cwd string, URL-encoded. `C:/Project` and `c:\Project` are two separate stores
+for one directory, confirmed by running the same folder both ways — a user whose terminal
+and whose editor spell the path differently silently keeps two sets of grants.
 
 ## Closed since the archive
 

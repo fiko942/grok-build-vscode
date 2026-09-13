@@ -732,7 +732,7 @@ describe("context popover respects the app purpose", () => {
     return h.doc.getElementById("context-popover")!;
   };
 
-  it("shows the number and Compact, and nothing else, in knowledge work", () => {
+  it("shows context, Compact and subscription availability in knowledge work", () => {
     const h = bootWebview();
     dispatch(h.window, { type: "initialState", appPurpose: "knowledge", capabilities: {} } as never);
 
@@ -747,6 +747,7 @@ describe("context popover respects the app purpose", () => {
     // What a person writing a document actually asked the donut.
     expect(text).toContain("Context used");
     expect(text).toContain("Compact conversation");
+    expect(text).toContain("No subscription usage reported yet.");
     // The technical account, all of it, absent.
     expect(text).not.toContain("In this window");
     expect(text).not.toContain("System");

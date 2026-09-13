@@ -288,6 +288,76 @@ describe("AcpClient session/info", () => {
   });
 });
 
+describe("AcpClient subscription usage", () => {
+  it("returns a minimized weekly measurement directly from billing", async () => {
+    const { client } = clientWithFakeProc();
+    (client as any).request = vi.fn().mockResolvedValue({ config: {
+      creditUsagePercent: 3,
+      currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", start: "2026-09-12T00:00:00Z", end: "2026-09-19T00:00:00Z" },
+      prepaidBalance: { val: 4426 }, onDemandCap: { val: 0 }, onDemandUsed: { val: 0 },
+      isUnifiedBillingUser: true, billingPeriodStart: "2026-09-01T00:00:00Z", billingPeriodEnd: "2026-10-01T00:00:00Z",
+    }, subscription_tier: "SuperGrok Heavy" });
+    const result = await client.getSubscriptionUsage();
+    expect(result).toEqual([{
+      usedPercent: 3, label: "Weekly", periodType: "USAGE_PERIOD_TYPE_WEEKLY",
+      periodStart: "2026-09-12T00:00:00.000Z", periodEnd: "2026-09-19T00:00:00.000Z", observedAt: expect.any(String),
+    }]);
+    for (const field of ["prepaidBalance", "onDemandCap", "onDemandUsed", "isUnifiedBillingUser",
+      "billingPeriodStart", "billingPeriodEnd", "subscription_tier"]) {
+      expect(JSON.stringify(result)).not.toContain(field);
+    }
+  });
+
+  it("uses the optional underscore billing method and latches unsupported quietly", async () => {
+    const { client } = clientWithFakeProc();
+    const log = vi.fn();
+    (client as any).opts.log = log;
+    const request = vi.fn().mockRejectedValue({ code: -32601, message: "Method not found" });
+    (client as any).request = request;
+    await expect(client.getSubscriptionUsage()).resolves.toEqual([]);
+    await expect(client.getSubscriptionUsage()).resolves.toEqual([]);
+    expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledWith("_x.ai/billing", {});
+    expect(log).toHaveBeenCalledWith("[billing] CLI does not support _x.ai/billing");
+  });
+
+  it("returns no measurement for malformed billing without inventing zero", async () => {
+    const { client } = clientWithFakeProc();
+    (client as any).request = vi.fn().mockResolvedValue({ config: {} });
+    await expect(client.getSubscriptionUsage()).resolves.toEqual([]);
+    (client as any).request = vi.fn().mockRejectedValue({ code: -32602 });
+    await expect(client.getSubscriptionUsage()).rejects.toMatchObject({ code: -32602 });
+  });
+
+  it.each([new ClaudeBackend(), new CodexBackend()])("does not pull billing from %s", async (backend) => {
+    const { client } = clientWithFakeProc({ backend });
+    const request = vi.fn();
+    (client as any).request = request;
+    await expect(client.getSubscriptionUsage()).resolves.toEqual([]);
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, new ClaudeBackend(), new CodexBackend()])("takes only Claude's own update meta, and only for the parent (%s)", (backend) => {
+    const { client } = clientWithFakeProc({ backend });
+    client.sessionId = "parent";
+    const observed = vi.fn();
+    client.on("subscriptionUsage", observed);
+    const rate = { status: "allowed_warning", utilization: 0.83, rateLimitType: "seven_day_opus", resetsAt: 1900000000 };
+    const update = { sessionUpdate: "usage_update", _meta: { "_claude/rateLimit": rate } };
+    (client as any).handleSessionUpdate({ sessionUpdate: "usage_update" }, update._meta, "parent");
+    (client as any).handleSessionUpdate(update, undefined, "child");
+    expect(observed).not.toHaveBeenCalled();
+    (client as any).handleSessionUpdate(update, undefined, "parent");
+    if (backend?.provider === "claude") {
+      expect(observed).toHaveBeenCalledOnce();
+      expect(observed.mock.calls[0][0]).toEqual([{
+        usedPercent: 83, label: "Weekly · Opus", periodType: "seven_day_opus",
+        periodEnd: new Date(rate.resetsAt * 1000).toISOString(), observedAt: expect.any(String),
+      }]);
+    } else expect(observed).not.toHaveBeenCalled();
+  });
+});
+
 describe("AcpClient session mcpServers", () => {
   it.each([undefined, new CodexBackend(), new ClaudeBackend()])("retains private MCP files through session startup and disposes them with the CLI (%s)", async (backend) => {
     const { client, written } = clientWithFakeProc({ backend });

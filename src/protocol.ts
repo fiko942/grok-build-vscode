@@ -30,6 +30,7 @@ import type { McpServerView } from "./mcp";
 import type { ConnectorView } from "./mcp-connectors";
 import type { RoutineDraft, RoutineModelOption, RoutineProjectOption, RoutineView } from "./routines";
 import type { GitStatusSnapshot } from "./git-status";
+import type { SubscriptionWindow } from "./subscription-usage";
 
 /**
  * The Changes snapshot as it crosses the wire.
@@ -781,6 +782,7 @@ export type HostMsg =
   | { type: "permissionOptions"; requestId: number | string; options: PermissionRequest["options"] }
   | { type: "permissionResolved"; requestId: number | string; optionId: string }
   | { type: "questionResolved"; requestId: number | string; outcome: "accepted" | "stale" | "closed" }
+  | { type: "subscriptionUsage"; windows: SubscriptionWindow[] }
   // The host spreads the plan-review snapshot (planPath/planName) into the bare
   // ExitPlanRequest before posting, so the wire shape is wider than acp's type.
   | { type: "exitPlanRequest"; req: ExitPlanRequest & { planPath?: string; planName?: string } }
@@ -1445,6 +1447,7 @@ export type WebviewMsg =
   | { type: "workflowControl"; action: "pause" | "resume" | "stop"; displayName: string }
   /** Read-only Grok context snapshot for the open donut popover. */
   | { type: "refreshContextDetails" }
+  | { type: "refreshSubscriptionUsage" }
   // Relay account (gear "AFK Pilot" section, local webview only): start the
   // device-link flow / drop the device token / open the relay web portal.
   | { type: "remoteSignIn" }
@@ -1473,6 +1476,7 @@ const HOST_MESSAGE_TYPE_MAP: Record<HostMsg["type"], true> = {
   historyReplay: true, historyBatch: true, permissionHistoryQueue: true, planHistoryQueue: true,
   toolCall: true, toolCallUpdate: true, permissionRequest: true, permissionOptions: true,
   permissionResolved: true, exitPlanRequest: true, planResolved: true, questionRequest: true, questionResolved: true,
+  subscriptionUsage: true,
   planNotice: true, autoCompactNotice: true, planBlocked: true, promptComplete: true, contextUsage: true, agentReset: true,
   agentError: true, agentEnd: true, exit: true, setBusy: true, summarizing: true,
   sessionContext: true, clearMessages: true, onboarding: true, error: true, hostNotice: true,
@@ -1510,6 +1514,7 @@ const WEBVIEW_MESSAGE_TYPE_MAP: Record<WebviewMsg["type"], true> = {
   newWorktreeSession: true, applyWorktree: true, removeWorktree: true,
   rewindSession: true, editLastMessage: true, uiConfirmAnswer: true, workflowControl: true,
   refreshContextDetails: true,
+  refreshSubscriptionUsage: true,
   remoteSignIn: true, remoteSignOut: true, unlinkRemoteDevice: true, openRemotePortal: true,
   openUpdateRelease: true, restartToUpdate: true,
 };

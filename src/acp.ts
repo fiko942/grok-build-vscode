@@ -1,6 +1,7 @@
 import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { createInterface, Interface } from "node:readline";
 import { EventEmitter } from "node:events";
+import { claudeSubscriptionWindows, grokSubscriptionWindows, type SubscriptionWindow } from "./subscription-usage";
 import * as path from "node:path";
 import {
   collectToolImages,
@@ -949,6 +950,22 @@ export class AcpClient extends EventEmitter {
     }
   }
 
+  private billingUnsupported = false;
+
+  async getSubscriptionUsage(): Promise<SubscriptionWindow[]> {
+    if (this.provider !== "grok" || this.billingUnsupported) return [];
+    try {
+      return grokSubscriptionWindows(await this.request("_x.ai/billing", {}));
+    } catch (error) {
+      if (isMethodNotFoundError(error)) {
+        this.billingUnsupported = true;
+        this.opts.log("[billing] CLI does not support _x.ai/billing");
+        return [];
+      }
+      throw error;
+    }
+  }
+
   /**
    * List rewind points for this session (P2-9). One point per user prompt;
    * each carries a prompt preview + whether file snapshots exist.
@@ -1287,6 +1304,10 @@ export class AcpClient extends EventEmitter {
     const foreign = isForeignSessionUpdate(sessionId, this.sessionId);
     const normalized = this.backend.normalizeUpdate(u, meta);
     if (!foreign) {
+      if (this.provider === "claude") {
+        const windows = claudeSubscriptionWindows(normalized.update);
+        if (windows !== undefined) this.emit("subscriptionUsage", windows);
+      }
       if (normalized.sessionTitle) {
         this.currentSessionTitle = normalized.sessionTitle;
         this.emit("sessionTitle", normalized.sessionTitle);

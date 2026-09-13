@@ -631,6 +631,7 @@
     // running turn hears you now, and it does not. See steerableProvider().
     lastTurnUsage: null, // last prompt's billing split (#53), for the donut popover
     sessionUsage: null, // session-cumulative billing — summed by the host, not grok
+    subscriptionWindows: [], // latest account capacity; never part of the transcript
     // Structured session/info addends, bound to the `used` they arrived with.
     // Occupancy-only frames keep this; an open popover re-fetches session/info.
     contextBreakdown: null,
@@ -2140,6 +2141,7 @@
     // by the host. Render the cached snapshot immediately, then re-render when
     // a fresh structured response arrives.
     vscode.postMessage({ type: "refreshContextDetails" });
+    vscode.postMessage({ type: "refreshSubscriptionUsage" });
     renderContextPopover();
   }
 
@@ -2243,7 +2245,59 @@
     }
     contextPopover.appendChild(act);
 
-    // KNOWLEDGE WORK STOPS HERE: the number and the action on it, nothing else.
+    const subscription = document.createElement("section");
+    subscription.className = "subscription-usage";
+    subscription.setAttribute("aria-label", "Subscription usage across your account");
+    section("Subscription usage · account", subscription);
+    const note = (text, parent = subscription) => {
+      const el = document.createElement("div");
+      el.className = "popover-fineprint";
+      el.textContent = text;
+      parent.appendChild(el);
+    };
+    const validDate = (value) => typeof value === "string" && Number.isFinite(Date.parse(value));
+    const windows = state.subscriptionWindows.filter((window) =>
+      window && typeof window.usedPercent === "number" && Number.isFinite(window.usedPercent)
+      && window.usedPercent >= 0 && window.usedPercent <= 100
+      && typeof window.label === "string" && window.label.trim()
+      && typeof window.periodType === "string" && window.periodType.trim()
+      && validDate(window.observedAt)
+      && (window.periodStart === undefined || validDate(window.periodStart))
+      && (window.periodEnd === undefined || validDate(window.periodEnd)));
+    if (!windows.length) {
+      note("No subscription usage reported yet.");
+    }
+    const formatPercent = (value) => new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value);
+    const formatDate = (value) => new Date(value).toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+    });
+    for (const window of windows) {
+      const row = document.createElement("div");
+      row.className = "subscription-window";
+      info(window.label, `${formatPercent(window.usedPercent)}% used · ${formatPercent(100 - window.usedPercent)}% left`, row);
+      const meter = document.createElement("div");
+      meter.className = "subscription-fullness";
+      meter.setAttribute("role", "meter");
+      meter.setAttribute("aria-label", `${window.label} subscription used`);
+      meter.setAttribute("aria-valuemin", "0");
+      meter.setAttribute("aria-valuemax", "100");
+      meter.setAttribute("aria-valuenow", String(window.usedPercent));
+      const fill = document.createElement("i");
+      fill.style.width = window.usedPercent + "%";
+      meter.appendChild(fill);
+      row.appendChild(meter);
+      note(window.periodEnd
+        ? `${Date.parse(window.periodEnd) > Date.now() ? "Resets" : "Reported reset"} ${formatDate(window.periodEnd)}`
+        : "Reset time not reported.", row);
+      note(`Observed ${formatDate(window.observedAt)}`, row);
+      subscription.appendChild(row);
+    }
+    if (windows.length && state.activeProvider === "claude") note("Latest reported window; other limits may apply.");
+    contextPopover.appendChild(subscription);
+
+    // KNOWLEDGE WORK STOPS HERE: the numbers and the action on them, nothing
+    // else. Context occupancy and account capacity both answer "can I keep
+    // going?", which is a question in either purpose.
     //
     // Everything below is the technical account — system prompt, reasoning
     // overhead, tool definitions, per-turn token and cost rows. That is the
@@ -2258,7 +2312,8 @@
     // function does, so returning early skipped them and the donut simply did
     // nothing in the default mode. Found by review; my own test read
     // textContent off the hidden element and passed, which is the same mistake
-    // as proving a package exists instead of proving the thing works.
+    // as proving a package exists instead of proving the thing works. Anything
+    // added ABOVE this line inherits that trap — assert on a SHOWN popover.
     if (!isCodingPurpose()) { showContextPopover(); return; }
 
     // Snapshot addends are internally consistent (overhead from snapshot.used).
@@ -9161,6 +9216,7 @@
     "userMessageChunk", "historyBatch", "toolCall", "toolCallUpdate",
     "permissionRequest", "permissionOptions", "permissionResolved",
     "exitPlanRequest", "planResolved", "questionRequest", "questionResolved", "planNotice",
+    "subscriptionUsage",
     "autoCompactNotice", "planBlocked", "promptComplete", "commandOutput",
     "agentReset", "agentError", "agentEnd", "exit", "sessionContext",
     "xaiNotification", "subagentUpdate", "childStream", "runProgress",
@@ -9477,7 +9533,9 @@
     state.historyEventCount = 0;
     state.lastTurnUsage = null;
     state.sessionUsage = null;
+    state.subscriptionWindows = [];
     state.contextBreakdown = null;
+    if (!contextPopover.hidden) renderContextPopover();
     state.suppressReplayTurn = false;
     state.skipUserBubble = false;
     cancelPendingSpeech();
@@ -17613,7 +17671,7 @@
         // is gone, neither does the session aggregate.
         state.lastTurnUsage = null;
         if (surviving === 0) state.sessionUsage = null;
-        if (!contextPopover.hidden) openContextPopover();
+        if (!contextPopover.hidden) renderContextPopover();
         hideGrokking();
         hideThinkingIndicator();
         // The newest surviving agent message ends a finished turn, so its
@@ -17699,6 +17757,7 @@
         break;
       }
       case "session": {
+        state.subscriptionWindows = [];
         state.currentModelId = msg.currentModelId;
         state.activeProvider = msg.provider === "codex" || msg.provider === "claude" ? msg.provider : "grok";
         renderQueuedBlocks();
@@ -18404,6 +18463,10 @@
         // it via its own meta or the host's contextUsage read.
         if (msg.meta?.totalTokens != null) updateDonut(msg.meta.totalTokens);
         break;
+      case "subscriptionUsage":
+        state.subscriptionWindows = Array.isArray(msg.windows) ? msg.windows : [];
+        if (!contextPopover.hidden) renderContextPopover();
+        break;
       case "contextUsage":
         // Host-authoritative occupancy: grok's signals.json / live envelope,
         // or the remembered adapter prompt size. A window-only frame updates
@@ -18659,7 +18722,7 @@
         // session total), so keep whatever we have rather than blanking it.
         if (msg.turn) state.lastTurnUsage = msg.turn;
         if (msg.session) state.sessionUsage = msg.session;
-        if (!contextPopover.hidden) openContextPopover(); // live-refresh if open
+        if (!contextPopover.hidden) renderContextPopover();
         break;
       case "setBusy":
         // Host-driven busy state for flows where there's no natural agentEnd

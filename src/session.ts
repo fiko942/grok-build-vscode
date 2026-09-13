@@ -3,6 +3,7 @@ import type { HostMsg } from "./protocol";
 import type { FileChip } from "./chips";
 import { permissionOptionsForPlan } from "./plan-gate";
 import type { AcpProvider } from "./acp-backend";
+import type { SubscriptionUsageBinding } from "./subscription-usage";
 import type { TelemetrySessionOrigin } from "./telemetry";
 import {
   queuedSendsMessage,
@@ -88,6 +89,8 @@ export class Session {
   chips: FileChip[] = [];
   /** The live ACP client (one spawned `grok agent stdio` process), once started. */
   client?: AcpClient;
+  /** Latest account capacity, held outside conversation history. */
+  subscriptionUsage?: SubscriptionUsageBinding;
 
   /** YOLO: auto-approve every permission request for this session. */
   autoApprove = false;
@@ -632,6 +635,7 @@ export function sessionUiSnapshot(
   chips: FileChip[] = session.chips,
 ): HostMsg[] {
   const messages: HostMsg[] = [];
+  messages.push({ type: "subscriptionUsage", windows: session.subscriptionUsage?.snapshot() ?? [] });
   if (session.client?.currentModelId) {
     messages.push({ type: "modelChanged", modelId: session.client.currentModelId });
   }
