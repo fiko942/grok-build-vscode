@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.6.0 — 2026-09-13
+## 4.5.1 — 2026-09-13
 
 **The control under the message box stops being an anonymous cog.** It says which model is answering and how hard it is thinking, right there on the button, and opens the picker rather than a menu you then navigate. Effort became a strip you can drag instead of five dots with no scale attached. The picker now stays open while you change your mind — pick a model, then pick an effort, one visit — and both changes leave together when you close it. Alongside that, three things that were plainly wrong on a phone: effort changes that appeared not to save, a picker that went half-transparent for the length of a turn, and a context breakdown that broke numbers in half.
 
@@ -22,9 +22,7 @@
 
 ### Fixed
 
-- **Changing effort on a phone sticks.** Reported as "starts saving, refreshes, then nothing happens", and the control could not be moved twice. All of it was one mechanism: on a conversation with no history the app restarts the session to change effort, which locked the control mid-gesture and made every correction after the first disappear in silence. The strip now previews while it is open and commits once, at the end, with the level you actually landed on — which is also one restart instead of one per stop your finger crossed on the way.
-
-- **Effort no longer snaps back on Codex.** The conversation announced the CLI's own configured default a moment before the requested level was applied, and nothing told the display — so the strip redrew at whatever `~/.codex/config.toml` says and stayed there, which reads exactly like the change was never saved.
+- **An effort change sticks instead of silently snapping back.** Reported on a phone as "starts saving, refreshes, then nothing happens", with the control unmovable a second time. Two causes under one symptom: on a conversation with no history the app restarts the session to change effort, which locked the control mid-gesture and swallowed every correction after the first — the strip now previews while it is open and commits once, at the end, on the level you actually landed on, which is also one restart rather than one per stop your finger crossed. And on Codex the conversation announced the CLI's own configured default a moment before the requested level applied, so the strip redrew at whatever `~/.codex/config.toml` says and stayed there.
 
 - **The picker stops going half-transparent while an answer streams.** Selection is locked for the length of a turn, and that was being said with opacity — over a transcript on a phone it read as a half-erased panel rather than a locked one, and it washed out the effort gradient, whose colour is the whole readout. Locked is a text colour now.
 
