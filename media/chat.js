@@ -2087,7 +2087,7 @@
   // ---------- popovers ----------
 
   function closePopovers() {
-    flushEffort();
+    flushPicker();
     gearBtn.setAttribute("aria-expanded", "false");
     gearPopover.classList.remove("model-picker");
     gearPopover.removeAttribute("role");
@@ -3854,17 +3854,7 @@
       el.setAttribute("aria-checked", String(active));
       el.onclick = (e) => {
         e.stopPropagation();
-        if (modelSelectionLocked()) return;
-        // A model carries its own ladder, so an effort previewed against the
-        // PREVIOUS model is not a choice to honour -- committing it on the close
-        // below could send a level this model never advertised. The host applies
-        // the new model's own effort and `modelChanged` reconciles the strip.
-        effortPending = null;
-        effortBaseline = null;
-        const message = { type: "setModel", modelId: m.modelId };
-        if (state.providersKnown && m.provider) message.provider = m.provider;
-        vscode.postMessage(message);
-        closePopovers();
+        previewModel(m);
       };
       list.appendChild(el);
     };
@@ -4417,23 +4407,76 @@
     effortNoticeTimer = setTimeout(() => { notice.textContent = ""; }, 4000);
   }
 
-  // The strip PREVIEWS while it is open and commits ONCE, when it closes.
-  // Committing per tap was unusable on an empty session: the first tap restarts
-  // the session, `busy` locks the control mid-gesture, and the host drops every
-  // later change with its own `session.priming` guard -- so a mis-tap could not
-  // be corrected until the restart finished, which reads as "nothing happens".
-  // One commit at the end is also one restart, not one per stop a finger crosses.
+  // The PICKER previews while it is open and commits ONCE, when it closes --
+  // the effort strip and the model list alike. Committing per tap was unusable
+  // on an empty session: the first tap restarts the session, `busy` locks the
+  // control mid-gesture, and the host drops every later change with its own
+  // `session.priming` guard -- so a mis-tap could not be corrected until the
+  // restart finished, which reads as "nothing happens". One commit at the end
+  // is also one restart, not one per stop a finger crosses.
+  //
+  // The model list joined the strip on 2026-09-13 (owner: "I wouldn't close the
+  // model and effort picker when someone changes the model. Their next step may
+  // be changing the effort"). Picking a model used to close the popover, so
+  // "this model at that effort" cost two visits -- and the second could not
+  // start until the first had finished restarting.
   let effortPending = null;   // the level the strip is showing, once it has moved
   let effortBaseline = null;  // what the host had when this opening began
+  let modelPending = null;    // {modelId, provider} the list is showing, once it has moved
+  let modelBaseline = null;   // what the host had when this opening began
 
-  /** Commit the previewed effort, if it actually differs from where we started. */
-  function flushEffort() {
-    const level = effortPending;
-    const baseline = effortBaseline;
-    effortPending = null;
-    effortBaseline = null;
-    if (level === null || level === baseline) return;
-    vscode.postMessage({ type: "setEffort", level });
+  /** Commit what the picker is showing, as ONE message. Two posts would race:
+   *  the host does not serialize its async message handlers, so a `setEffort`
+   *  that restarts could read the remembered model back before the `setModel`
+   *  beside it had written one. `setModel` therefore carries the effort, and
+   *  the host applies the model first. A host too old to read that field
+   *  applies the model and ignores the level -- the strip then reconciles to
+   *  what the session actually runs at, and changing effort alone still works. */
+  function flushPicker() {
+    const model = modelPending, wasModel = modelBaseline;
+    const level = effortPending, wasLevel = effortBaseline;
+    effortPending = null; effortBaseline = null;
+    modelPending = null; modelBaseline = null;
+    const effortMoved = level !== null && level !== wasLevel;
+    if (model && (model.modelId !== wasModel.modelId || model.provider !== wasModel.provider)) {
+      const message = { type: "setModel", modelId: model.modelId };
+      // The row's OWN provider, not the one the preview resolved: a row that
+      // declares none leaves the host to infer it from the model id, which is
+      // what an older catalog needs (providerForRequestedModel).
+      if (state.providersKnown && model.declared) message.provider = model.declared;
+      if (effortMoved) message.effort = level;
+      vscode.postMessage(message);
+      return;
+    }
+    if (effortMoved) vscode.postMessage({ type: "setEffort", level });
+  }
+
+  /** Show a model as chosen without committing it. The chip and the strip both
+   *  read `state`, so writing it here IS the optimism the owner asked for: the
+   *  picker reopened before the host has applied anything still shows what was
+   *  picked, rather than snapping back to the value being replaced. */
+  function previewModel(m) {
+    if (modelSelectionLocked()) return;
+    const provider = m.provider || state.activeProvider;
+    if (!modelBaseline) modelBaseline = { modelId: state.currentModelId, provider: state.activeProvider };
+    state.currentModelId = m.modelId;
+    state.activeProvider = provider;
+    modelPending = { modelId: m.modelId, provider, declared: m.provider };
+    // A model carries its own ladder, so a level previewed against the PREVIOUS
+    // model stays a choice only while THIS one still offers it: an off-menu
+    // level is refused by the adapter, which would leave the strip showing
+    // something the session never ran at. "" is every model's default and keeps.
+    if (effortPending && !effortLevelsForModel().includes(effortPending)) {
+      effortPending = null;
+      effortBaseline = null;
+    }
+    // Re-rendering destroys the row that was just clicked, so a keyboard walk
+    // through the list would drop focus to the body mid-gesture.
+    const refocus = gearPopover.contains(document.activeElement);
+    syncModelChip();
+    renderModelPicker();
+    const row = refocus && gearPopover.querySelector(".model-picker-row.active");
+    if (row) { try { row.focus(); } catch { /* */ } }
   }
 
   function renderEffortStrip() {

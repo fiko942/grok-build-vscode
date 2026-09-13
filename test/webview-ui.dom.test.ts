@@ -1057,7 +1057,7 @@ describe("gear settings lock (model + effort disabled while busy / priming)", ()
     expect(modelBtn(doc).textContent).not.toContain("grok-build");
   });
 
-  it("when idle, the model button opens the picker and a pick posts setModel", () => {
+  it("when idle, a pick previews in place and posts setModel when the picker closes", () => {
     const { window, posted, doc } = bootWithModels();
     click(window, $(doc, "gear-btn"));
     expect(modelBtn(doc).disabled).toBe(false);
@@ -1066,7 +1066,31 @@ describe("gear settings lock (model + effort disabled while busy / priming)", ()
       .find((el) => el.textContent!.includes("Composer 2.5 Fast")) as HTMLElement;
     click(window, composer);
 
+    // The next step may be the effort strip, so the picker stays up — and the
+    // chip already reads the new name, applied or not (owner, 2026-09-13).
+    expect($(doc, "gear-popover").hidden).toBe(false);
+    expect($(doc, "gear-btn").textContent).toContain("Composer 2.5 Fast");
+    expect(types(posted)).not.toContain("setModel");
+
+    click(window, $(doc, "gear-btn"));
     expect(posted).toContainEqual({ type: "setModel", modelId: "grok-composer-2.5-fast" });
+  });
+
+  it("sends ONE message when a close changed the model and the effort", () => {
+    const { window, posted, doc } = bootWithModels();
+    click(window, $(doc, "gear-btn"));
+    const composer = [...doc.querySelectorAll("#gear-popover .toolbar-popover-item")]
+      .find((el) => el.textContent!.includes("Composer 2.5 Fast")) as HTMLElement;
+    click(window, composer);
+    click(window, doc.querySelectorAll(".effort-strip-stop")[3] as HTMLElement);
+    click(window, $(doc, "gear-btn"));
+
+    // Two posts would race the host's own handlers, so the level rides on the
+    // switch — see flushPicker, and sidebar's setModel case.
+    expect(posted).toContainEqual({
+      type: "setModel", modelId: "grok-composer-2.5-fast", effort: "medium",
+    });
+    expect(types(posted)).not.toContain("setEffort");
   });
 
   it("groups remote empty-session models deterministically and switches providers additively", () => {
@@ -1095,6 +1119,7 @@ describe("gear settings lock (model + effort disabled while busy / priming)", ()
     const codexModel = [...h.doc.querySelectorAll("#gear-popover .toolbar-popover-item")]
       .find((el) => el.textContent?.includes("GPT-5.6 Sol")) as HTMLElement;
     click(h.window, codexModel);
+    click(h.window, $(h.doc, "gear-btn"));
     expect(h.posted).toContainEqual({ type: "setModel", modelId: "gpt-5.6-sol", provider: "codex" });
   });
 

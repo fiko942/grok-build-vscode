@@ -802,6 +802,11 @@ export class GrokSidebar {
   private set chips(value: FileChip[]) { this.focused.chips = value; }
   /** Attachment-staging ops still in flight — see trackAttach. */
   private readonly pendingAttach = new Set<Promise<void>>();
+  /** The model/effort change the picker last committed, while it is still
+   *  landing — see trackPickerChange. */
+  private pickerChange?: Promise<void>;
+  /** What ends a wait on it early — see releasePickerWaits. */
+  private pickerRelease?: () => void;
   /** Cached findFiles snapshot for the `@` popover (no open-editor merge).
    *  One snapshot serves {@link MENTION_INDEX_TTL_MS}; concurrent queries share
    *  one in-flight build. Open tabs are layered on at read time. */
@@ -3041,6 +3046,74 @@ export class GrokSidebar {
       await cfg.update("defaultModel", modelId, "global");
       await this.restartSession(mode, session);
     }
+  }
+
+  /** Apply a reasoning-effort change: live where the CLI honors one, by restart
+   *  where it does not. Reached from the picker's own `setEffort`, and from a
+   *  `setModel` that carries a level because the picker's close changed both.
+   *
+   *  Deliberately NOT acknowledged back to the renderer. The chip sets the
+   *  level optimistically and reconciles on the next `initialState` —
+   *  exactly as the effort dots did before it. Emitting `initialState` as
+   *  an acknowledgement looks free and is not: `emit` buffers it into the
+   *  session replay AND fans it to every remote holding the conversation,
+   *  and that frame is action-shaped (`restoreRememberedRemoteSession`
+   *  posts `resumeSession` from it), so a phone changing effort would clear
+   *  and replay its own transcript and drop an in-flight recording. The
+   *  residue we accept instead: dismiss the restart prompt and the chip
+   *  shows the level you picked until the conversation next reloads. */
+  private async applyEffort(
+    newLevel: string,
+    session: Session,
+    origin: MsgOrigin,
+    clientId: string | undefined,
+    requester: RemoteRequester | undefined,
+  ): Promise<void> {
+    if (session.priming) return; // ignore changes fired mid-session-start (see switchModel)
+
+    if (!session.hasHistory || !session.client) {
+      // As with a model switch on an empty session: restart without the summarize-vs-restart
+      // prompt and discard the abandoned empty session — but only when it truly had no
+      // history (a dead client on a session WITH history must keep that history).
+      const wasEmpty = !session.hasHistory;
+      const discardId = session.activeSessionId;
+      await this.rememberProviderEffort(session.provider, newLevel);
+      if (wasEmpty && isAdapterProvider(session.provider)) {
+        await this.discardAdapterEmptySession(session.provider, discardId, this.sessionCwd(session), session.client);
+      }
+      await this.startSession(undefined, session);
+      if (wasEmpty && session.provider === "grok") this.discardRestartedEmptySession(discardId, session);
+      return;
+    }
+
+    // Live effort switch — no restart — when the CLI honors per-session
+    // effort (grok ≥ the build advertising models[]._meta.supportsReasoningEffort
+    // + accepting set_model _meta.reasoningEffort; confirmed 0.2.101). Only a
+    // real, non-empty effort qualifies — "unset" (back to default) still needs
+    // a fresh spawn without --reasoning-effort. Persist the preference ONLY
+    // after the switch actually lands (live-applied, or restart accepted) — a
+    // persist-before that fails + dismissed restart would leave the saved
+    // default changed while the session ran at the old effort.
+    if (newLevel && session.client.currentModelSupportsEffort()) {
+      const applied = await session.client.setReasoningEffort(newLevel).catch(() => false);
+      if (applied) {
+        await this.rememberProviderEffort(session.provider, newLevel);
+        return;
+      }
+    }
+
+    if (origin === "remote" && clientId) {
+      this.reportRequester(
+        requester,
+        "warning",
+        "Changing reasoning effort here requires restarting the conversation from the VS Code view.",
+      );
+      return;
+    }
+    const mode = await this.pickRestartMode("Changing reasoning effort requires restarting the session.");
+    if (!mode) return; // dismissed — leave the remembered effort untouched
+    await this.rememberProviderEffort(session.provider, newLevel);
+    await this.restartSession(mode, session);
   }
 
   openModePopover(): void {
@@ -9227,6 +9300,8 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
    *  (reasoning effort, cross-agent model). Returns the chosen restart mode, or
    *  undefined if the user dismissed the dialog. */
   private async pickRestartMode(message: string): Promise<"clear" | "summarize" | undefined> {
+    // From here on the picker change is blocked on a person, not on the CLI.
+    this.releasePickerWaits();
     const choice = await this.host.showInformationMessage(
       message,
       "Summarize & Restart",
@@ -11117,16 +11192,22 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
           this.noteAnswered(session);
         }
         break;
-      case "setModel":
-        await this.switchModel(
-          msg.modelId,
-          session,
-          requester,
-          isAcpProvider(msg.provider)
-            ? msg.provider
-            : this.providerForRequestedModel(msg.modelId, session.provider),
-        );
+      case "setModel": {
+        const provider = isAcpProvider(msg.provider)
+          ? msg.provider
+          : this.providerForRequestedModel(msg.modelId, session.provider);
+        const { effort } = msg;
+        // One close, one message: the picker commits model and effort together
+        // so the two cannot race (media/chat.js, flushPicker). Model first —
+        // a compatible switch carries a live effort override through when the
+        // target offers it, so applying the level afterwards is what settles a
+        // disagreement between the two.
+        await this.trackPickerChange((async () => {
+          await this.switchModel(msg.modelId, session, requester, provider);
+          if (typeof effort === "string") await this.applyEffort(effort, session, origin, clientId, requester);
+        })());
         break;
+      }
       case "listRoutines":
         this.routineError = undefined;
         this.postRoutines();
@@ -11211,65 +11292,9 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
       case "cancelCodexInstall":
         this.codexInstallAbort?.abort(new Error("Installation cancelled."));
         break;
-      case "setEffort": {
-        // Deliberately NOT acknowledged back to the renderer. The chip sets the
-        // level optimistically and reconciles on the next `initialState` —
-        // exactly as the effort dots did before it. Emitting `initialState` as
-        // an acknowledgement looks free and is not: `emit` buffers it into the
-        // session replay AND fans it to every remote holding the conversation,
-        // and that frame is action-shaped (`restoreRememberedRemoteSession`
-        // posts `resumeSession` from it), so a phone changing effort would clear
-        // and replay its own transcript and drop an in-flight recording. The
-        // residue we accept instead: dismiss the restart prompt and the chip
-        // shows the level you picked until the conversation next reloads.
-        if (session.priming) break; // ignore changes fired mid-session-start (see switchModel)
-        const newLevel = msg.level;
-
-        if (!session.hasHistory || !session.client) {
-          // As with a model switch on an empty session: restart without the summarize-vs-restart
-          // prompt and discard the abandoned empty session — but only when it truly had no
-          // history (a dead client on a session WITH history must keep that history).
-          const wasEmpty = !session.hasHistory;
-          const discardId = session.activeSessionId;
-          await this.rememberProviderEffort(session.provider, newLevel);
-          if (wasEmpty && isAdapterProvider(session.provider)) {
-            await this.discardAdapterEmptySession(session.provider, discardId, this.sessionCwd(session), session.client);
-          }
-          await this.startSession(undefined, session);
-          if (wasEmpty && session.provider === "grok") this.discardRestartedEmptySession(discardId, session);
-          break;
-        }
-
-        // Live effort switch — no restart — when the CLI honors per-session
-        // effort (grok ≥ the build advertising models[]._meta.supportsReasoningEffort
-        // + accepting set_model _meta.reasoningEffort; confirmed 0.2.101). Only a
-        // real, non-empty effort qualifies — "unset" (back to default) still needs
-        // a fresh spawn without --reasoning-effort. Persist the preference ONLY
-        // after the switch actually lands (live-applied, or restart accepted) — a
-        // persist-before that fails + dismissed restart would leave the saved
-        // default changed while the session ran at the old effort.
-        if (newLevel && session.client.currentModelSupportsEffort()) {
-          const applied = await session.client.setReasoningEffort(newLevel).catch(() => false);
-          if (applied) {
-            await this.rememberProviderEffort(session.provider, newLevel);
-            break;
-          }
-        }
-
-        if (origin === "remote" && clientId) {
-          this.reportRequester(
-            requester,
-            "warning",
-            "Changing reasoning effort here requires restarting the conversation from the VS Code view.",
-          );
-          break;
-        }
-        const mode = await this.pickRestartMode("Changing reasoning effort requires restarting the session.");
-        if (!mode) break; // dismissed — leave the remembered effort untouched
-        await this.rememberProviderEffort(session.provider, newLevel);
-        await this.restartSession(mode, session);
+      case "setEffort":
+        await this.trackPickerChange(this.applyEffort(msg.level, session, origin, clientId, requester));
         break;
-      }
       case "addProjectFolder":
         await this.addProjectFolder();
         break;
@@ -15417,6 +15442,37 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
     return tracked;
   }
 
+  /** Track a model/effort change committed when the picker closed, so the send
+   *  it was chosen for waits for it ("I would make it in the background without
+   *  blocking the user. This must happen before the message is sent" — owner,
+   *  2026-09-13). Message ordering alone does not give that: it guarantees only
+   *  that the change has STARTED handling, while its RPC or its restart can
+   *  still be mid-flight when handleSend runs, for the same reason trackAttach
+   *  exists.
+   *
+   *  What a send waits for is BOUNDED by releasePickerWaits. A restart prompt is
+   *  a question to the user, not work in flight, and a notification nobody
+   *  answers must never swallow the message queued behind it. The change itself
+   *  runs on regardless — the caller awaits all of it. */
+  private trackPickerChange(op: Promise<unknown>): Promise<void> {
+    let release!: () => void;
+    const asked = new Promise<void>((resolve) => { release = resolve; });
+    const tracked = Promise.race([op.then(() => undefined, () => undefined), asked]);
+    this.pickerRelease = release;
+    this.pickerChange = tracked;
+    const done = () => {
+      if (this.pickerChange === tracked) this.pickerChange = undefined;
+      if (this.pickerRelease === release) this.pickerRelease = undefined;
+    };
+    void tracked.then(done, done);
+    return op.then(() => undefined);
+  }
+
+  /** Stop a send waiting on a picker change that is now waiting on the USER. */
+  private releasePickerWaits(): void {
+    this.pickerRelease?.();
+  }
+
   /** Resolve attachment ownership at commit time. Session transitions can
    * replace the active session while staging is awaiting the filesystem; a
    * captured Session would then deliver the chip to the conversation the tab
@@ -15837,6 +15893,17 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
     // turn ended while another was focused). Only the focused session may spawn
     // a client on demand; a background target without one has nothing to talk to.
     const session = target ?? this.focused;
+    // A model or effort change committed when the picker closed has started
+    // handling (message ordering), but its RPC or its restart can still be
+    // mid-flight. Settle the in-flight set BEFORE anything reads this session's
+    // readiness, so a restart the picker triggered is one waitForSessionStart
+    // below can see. One-shot snapshot on purpose: a change posted after this
+    // send belongs to the next turn.
+    // One promise, not a set: a second commit supersedes the first, and it was
+    // posted after it. Optional because handleSend runs against hand-built
+    // instances in the suite that never ran a constructor.
+    const picking = this.pickerChange;
+    if (picking) await picking;
     await this.waitForSessionStart(session);
     // Desk↔remote co-attach: the OTHER view only learns `busy` once the
     // mirrored agentStart crosses the relay, so a send can race through that

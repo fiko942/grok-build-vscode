@@ -1218,7 +1218,13 @@ export type WebviewMsg =
   | { type: "exitPlanAnswer"; requestId: number | string; verdict: "approved" | "abandoned" | "rejected"; comment?: string }
   | { type: "questionAnswer"; requestId: number | string; answers?: Record<string, string>; annotations?: Record<string, { notes?: string; preview?: string }> }
   | { type: "questionCancel"; requestId: number | string }
-  | { type: "setModel"; modelId: string; provider?: "grok" | "codex" | "claude" }
+  // `effort` rides along when one close of the picker changed both. Sending it
+  // as a second `setEffort` would race: the host does not serialize its async
+  // message handlers, so an effort restart could read the remembered model back
+  // before the switch beside it had written one. A host too old to read the
+  // field applies the model and ignores the level — the picker then reconciles
+  // to what the session runs at, and changing effort alone still works.
+  | { type: "setModel"; modelId: string; provider?: "grok" | "codex" | "claude"; effort?: string }
   | { type: "installCodex" }
   | { type: "cancelCodexInstall" }
   | { type: "runInstallCmd" }

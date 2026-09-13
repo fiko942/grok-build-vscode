@@ -125,6 +125,68 @@ describe("effort picker persistence", () => {
     expect(sidebar.emit).not.toHaveBeenCalled();
   });
 
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("applies the model BEFORE the effort when one close of the picker changed both", async () => {
+    const { sidebar, session, values } = picker("codex");
+    const order: string[] = [];
+    sidebar.switchModel = vi.fn(async () => { order.push("model"); });
+    vi.mocked(session.client!.setReasoningEffort)
+      .mockImplementation(async () => { order.push("effort"); return true; });
+
+    await sidebar.onMessage(
+      { type: "setModel", modelId: "gpt-6-astra", provider: "codex", effort: "high" },
+      "local",
+    );
+
+    // A switch carries a live effort override through when the target offers
+    // it, so the level has to be applied after the model, not before.
+    expect(order).toEqual(["model", "effort"]);
+    expect(values["grok.defaultEffortByProvider"]).toEqual({ codex: "high" });
+  });
+
+  it("changes nothing about effort when setModel carries no level", async () => {
+    const { sidebar, session } = picker("codex");
+    sidebar.switchModel = vi.fn(async () => {});
+    await sidebar.onMessage({ type: "setModel", modelId: "gpt-6-astra", provider: "codex" }, "local");
+    expect(session.client!.setReasoningEffort).not.toHaveBeenCalled();
+  });
+
+  it("holds a send until the picker's commit has landed", async () => {
+    const { sidebar } = picker("codex");
+    let land!: () => void;
+    sidebar.switchModel = vi.fn(() => new Promise<void>((resolve) => { land = resolve; }));
+    const reached: string[] = [];
+    // The first thing handleSend does after settling the picker.
+    sidebar.waitForSessionStart = vi.fn(async () => { reached.push("send"); throw new Error("far enough"); });
+
+    void sidebar.onMessage({ type: "setModel", modelId: "gpt-6-astra", provider: "codex" }, "local");
+    await tick();
+    const send = sidebar.handleSend("hello").catch(() => {});
+    await tick();
+    expect(reached).toEqual([]); // "This must happen before the message is sent."
+
+    land();
+    await send;
+    expect(reached).toEqual(["send"]);
+  });
+
+  it("does not let a restart prompt nobody answers swallow the send behind it", async () => {
+    const { sidebar, session } = picker("claude");
+    vi.mocked(session.client!.setReasoningEffort).mockResolvedValue(false);
+    delete sidebar.pickRestartMode; // the real one, which releases the wait
+    sidebar.host.showInformationMessage = vi.fn(() => new Promise(() => {}));
+    const reached: string[] = [];
+    sidebar.waitForSessionStart = vi.fn(async () => { reached.push("send"); throw new Error("far enough"); });
+
+    void sidebar.onMessage({ type: "setEffort", level: "low" }, "local");
+    await tick();
+    expect(sidebar.host.showInformationMessage).toHaveBeenCalled();
+
+    await sidebar.handleSend("hello").catch(() => {});
+    expect(reached).toEqual(["send"]);
+  });
+
   it("ignores a change fired mid-session-start, and a dismissed reset persists nothing", async () => {
     const { sidebar, session, cfg } = picker("grok");
     session.priming = true;
