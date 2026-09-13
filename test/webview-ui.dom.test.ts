@@ -1132,6 +1132,7 @@ describe("gear settings lock (model + effort disabled while busy / priming)", ()
     expect(order.indexOf("setModel")).toBeLessThan(order.indexOf("send"));
   });
 
+
   it("groups remote empty-session models deterministically and switches providers additively", () => {
     const h = bootWebview({ remote: true });
     dispatch(h.window, {

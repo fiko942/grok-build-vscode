@@ -15984,12 +15984,6 @@
   // ("grok send"), whose composer is cleared separately so the mic can keep
   // listening for the next utterance.
   function submitMessage(text) {
-    // The OTHER door, and it is not reached through sendOrStop: a spoken
-    // "grok send" arrives as a host message, so no click ever bubbles into
-    // `closePopovers` to commit what the picker is showing. Dictating with the
-    // picker already open is the way in -- the mic is a toolbar button, so
-    // pressing it commits, but a picker opened DURING a dictation never does.
-    flushPicker();
     const t = (text || "").trim();
     if (!t) return;
     state.busy = true;
@@ -17763,6 +17757,17 @@
         input.value = "";
         renderInputHighlight();
         if (t) {
+          // Speech is the composer's other door, and no click precedes it:
+          // this arrives as a host message, so nothing bubbles into
+          // `closePopovers` to commit what the picker is showing -- and
+          // `micBtn.onclick` stops propagation, so even pressing the mic does
+          // not. Opening the picker mid-dictation and saying the phrase is the
+          // way in. Above the branch rather than inside `submitMessage`,
+          // because the gesture is one gesture; the queueing branch cannot
+          // itself carry a pending pick (`modelSelectionLocked` refuses a
+          // preview while a turn runs) and costs nothing to cover. The typed
+          // and pressed doors are flushed once in `sendOrStop`, the same way.
+          flushPicker();
           if (state.busy) queueOutgoing(t);
           else submitMessage(t);
         }
