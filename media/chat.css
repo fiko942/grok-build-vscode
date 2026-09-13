@@ -5973,3 +5973,23 @@ body.host-wait-visible { padding-bottom: var(--host-wait-height, 76px); }
 body.host-wait-visible .settings-overlay,
 body.host-wait-visible .gfp-panel.gfp-overlay { bottom: var(--host-wait-height, 76px) !important; }
 .settings-pending { grid-column: 1 / -1; font-size: 12px; opacity: .8; }
+
+/* Fullscreen White Shutter Flash Effect for Snapshots */
+.snapshot-screen-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 999999;
+  background: #ffffff;
+  pointer-events: none;
+  opacity: 0.88;
+  animation: snapshot-flash-fade 240ms cubic-bezier(0.1, 0.9, 0.2, 1) forwards;
+}
+
+@keyframes snapshot-flash-fade {
+  0% {
+    opacity: 0.88;
+  }
+  100% {
+    opacity: 0;
+  }
+}

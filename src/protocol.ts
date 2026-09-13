@@ -396,6 +396,9 @@ export type HostMsg =
        * from this field; `feedbackAvailability` remains the affordance gate.
        */
       thumbsFeedback?: boolean;
+      snapshotAutoAttach?: boolean;
+      snapshotSavePath?: string;
+      snapshotShortcut?: string;
       capabilities: HostUiCapabilities }
   /** Live retraction of `capabilities.moveViewHint`, sent the moment the user
    *  opens the host's move-view picker. `initialState` is not re-sent on a
@@ -600,6 +603,14 @@ export type HostMsg =
   | { type: "telemetryEnabled"; value: boolean }
   /** Live `grok.thumbsFeedback` so the settings surface stays in sync. */
   | { type: "thumbsFeedback"; value: boolean }
+  /** Live `grok.snapshot.autoAttach` so settings stays in sync. */
+  | { type: "snapshotAutoAttach"; value: boolean }
+  /** Live `grok.snapshot.savePath` so settings stays in sync. */
+  | { type: "snapshotSavePath"; value: string }
+  /** Live `grok.snapshot.shortcut` so settings stays in sync. */
+  | { type: "snapshotShortcut"; value: string }
+  /** Feedback event for screen flash and camera shutter sound on snapshot capture. */
+  | { type: "snapshotTaken" }
   | { type: "voicePartial"; text: string }
   | { type: "voiceSubmit"; text: string }
   | { type: "voiceTranscript"; text: string; send?: boolean }
@@ -1205,6 +1216,14 @@ export type WebviewMsg =
   | { type: "setTelemetryEnabled"; value: boolean }
   /** Persist `grok.thumbsFeedback`. Host-owned; remotes honour the desk value. */
   | { type: "setThumbsFeedback"; value: boolean }
+  /** Persist `grok.snapshot.autoAttach`. */
+  | { type: "setSnapshotAutoAttach"; value: boolean }
+  /** Persist `grok.snapshot.savePath`. */
+  | { type: "setSnapshotSavePath"; value: string }
+  /** Persist `grok.snapshot.shortcut`. */
+  | { type: "setSnapshotShortcut"; value: string }
+  /** Open host folder picker for snapshot save directory. */
+  | { type: "pickSnapshotFolder" }
   /**
    * Attach a user-selected file. VS Code posts a `path` (file URI or absolute)
    * from the webview drag-drop surface. Desktop posts only a host-minted
@@ -1455,7 +1474,7 @@ export type WebviewMsg =
 // error). The runtime arrays are just the keys, so they can never drift from the
 // union without failing the build.
 const HOST_MESSAGE_TYPE_MAP: Record<HostMsg["type"], true> = {
-  initialState: true, moveViewHint: true, welcomeTips: true, projectSetup: true, githubState: true, githubRepos: true, providerState: true, mcpServers: true, mcpConnectors: true, mcpConnectorAuthorization: true, routines: true, codexInstallProgress: true, planModeAvailability: true, showThinking: true, appPurpose: true, fontScale: true, grokUpdateStatus: true, updateAvailable: true, updateReady: true, telemetryEnabled: true, thumbsFeedback: true,
+  initialState: true, moveViewHint: true, welcomeTips: true, projectSetup: true, githubState: true, githubRepos: true, providerState: true, mcpServers: true, mcpConnectors: true, mcpConnectorAuthorization: true, routines: true, codexInstallProgress: true, planModeAvailability: true, showThinking: true, appPurpose: true, fontScale: true, grokUpdateStatus: true, updateAvailable: true, updateReady: true, telemetryEnabled: true, thumbsFeedback: true, snapshotAutoAttach: true, snapshotSavePath: true, snapshotShortcut: true, snapshotTaken: true,
   initialized: true, cliUpdating: true, session: true, sessionName: true, modelChanged: true,
   modeChanged: true, openModePopover: true, voiceState: true, voiceConfigured: true,
   voicePartial: true, voiceSubmit: true, voiceTranscript: true, voiceError: true,
@@ -1483,7 +1502,7 @@ const WEBVIEW_MESSAGE_TYPE_MAP: Record<WebviewMsg["type"], true> = {
   openProjectConfig: true, listMcpServers: true, connectMcpConnector: true, disconnectMcpConnector: true,
   listRoutines: true, saveRoutine: true, deleteRoutine: true, setRoutinePaused: true, runRoutineNow: true, showLogs: true, toggleDevTools: true, openSettings: true, openSettingsSurface: true, closeSettingsSurface: true, dismissWelcomeTip: true, welcomeTipShown: true, moveView: true,
   setShowThinking: true, setAppPurpose: true, setExpandCommandOutputs: true, setSteerByDefault: true, setPromptNav: true, setExpandDiffCard: true,
-  setSoundNotifications: true, setProcessingSound: true, setReadRepliesAloud: true, setSummarizeRepliesAloud: true, setVoiceSendPhrase: true, setVoiceKeyterms: true, setTelemetryEnabled: true, setThumbsFeedback: true, summarizeSpeech: true, requestImageFull: true, requestImageOriginal: true, composerFocus: true,
+  setSoundNotifications: true, setProcessingSound: true, setReadRepliesAloud: true, setSummarizeRepliesAloud: true, setVoiceSendPhrase: true, setVoiceKeyterms: true, setTelemetryEnabled: true, setThumbsFeedback: true, setSnapshotAutoAttach: true, setSnapshotSavePath: true, setSnapshotShortcut: true, summarizeSpeech: true, requestImageFull: true, requestImageOriginal: true, composerFocus: true,
   dropFile: true, permissionAnswer: true, exitPlanAnswer: true, questionAnswer: true,
   questionCancel: true, setModel: true, installCodex: true, cancelCodexInstall: true, runInstallCmd: true, runGrokLogin: true,
   cancelDeviceLogin: true, submitDeviceLoginCode: true,
@@ -1491,7 +1510,7 @@ const WEBVIEW_MESSAGE_TYPE_MAP: Record<WebviewMsg["type"], true> = {
   listSessions: true, listRepoSessions: true, selectRepo: true, toggleRepoPin: true, toggleSessionPin: true,
   setRepoArchived: true, setRepoColor: true,
   resumeSession: true, renameSession: true, deleteSession: true,
-  clearAllSessions: true, pickFile: true, mentionQuery: true, addMentionFile: true,
+  clearAllSessions: true, pickFile: true, pickSnapshotFolder: true, mentionQuery: true, addMentionFile: true,
   listProjectDir: true, readProjectFile: true, writeProjectFile: true,
   readProviderConfig: true, writeProviderConfig: true, restartProviderSession: true,
   gitStatus: true, gitFileDiff: true, gitRun: true,

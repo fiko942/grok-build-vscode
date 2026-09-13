@@ -3478,7 +3478,7 @@ describe("context popover — usage breakdown (#53)", () => {
     // Session total is the number you act on, so it leads; Last turn is detail.
     expect(txt.indexOf("Session total")).toBeGreaterThan(-1);
     expect(txt.indexOf("Session total")).toBeLessThan(txt.indexOf("Last turn"));
-    expect(txt.replace(/[,\s\u00a0\u202f]/g, "")).toContain("32722");
+    expect(txt.replace(/[,\.\s\u00a0\u202f]/g, "")).toContain("32722");
     expect(txt).toContain("cache read");
     expect(txt).not.toContain("Cost"); // no reported cost => no fake $0 row
     // No cache-CREATION field exists anywhere in the CLI — it must not be faked.

@@ -151,6 +151,7 @@ export function parseWebviewMsg(raw: unknown): WebviewMsg | null {
     case "updateGrok":
     case "refreshProviders":
     case "pickFile":
+    case "pickSnapshotFolder":
     case "voiceStart":
     case "remoteVoiceStart":
     case "forkSession":
@@ -234,6 +235,7 @@ export function parseWebviewMsg(raw: unknown): WebviewMsg | null {
     case "setExpandDiffCard":
     case "setTelemetryEnabled":
     case "setThumbsFeedback":
+    case "setSnapshotAutoAttach":
     case "composerFocus":
       if (type === "composerFocus") {
         if (!isBoolean(raw.focused)) return null;
@@ -242,6 +244,8 @@ export function parseWebviewMsg(raw: unknown): WebviewMsg | null {
       }
       break;
     case "setVoiceSendPhrase":
+    case "setSnapshotSavePath":
+    case "setSnapshotShortcut":
       if (!isString(raw.value)) return null;
       break;
     case "setVoiceKeyterms":

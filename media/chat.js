@@ -1207,6 +1207,81 @@
       suspendAudioCtx(ctx);
     }, Math.ceil(lastStop * 1000) + 20);
   }
+
+  function playCameraShutterSound() {
+    const ctx = ensureAudioCtx();
+    if (!ctx) return;
+    audioToneGen += 1;
+    const gen = audioToneGen;
+    if (audioSuspendTimer != null) {
+      clearTimeout(audioSuspendTimer);
+      audioSuspendTimer = null;
+    }
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    const t0 = ctx.currentTime;
+
+    try {
+      // Shutter click 1 (mirror flip up / high crisp tick)
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = "triangle";
+      osc1.frequency.setValueAtTime(1100, t0);
+      if (typeof osc1.frequency.exponentialRampToValueAtTime === "function") {
+        osc1.frequency.exponentialRampToValueAtTime(350, t0 + 0.025);
+      }
+      gain1.gain.setValueAtTime(0.35, t0);
+      if (typeof gain1.gain.exponentialRampToValueAtTime === "function") {
+        gain1.gain.exponentialRampToValueAtTime(0.01, t0 + 0.025);
+      }
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(t0);
+      osc1.stop(t0 + 0.03);
+
+      // Shutter click 2 (mechanical curtain snap - "cekrek")
+      const t1 = t0 + 0.045;
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = "sine";
+      osc2.frequency.setValueAtTime(340, t1);
+      if (typeof osc2.frequency.exponentialRampToValueAtTime === "function") {
+        osc2.frequency.exponentialRampToValueAtTime(80, t1 + 0.06);
+      }
+      gain2.gain.setValueAtTime(0.45, t1);
+      if (typeof gain2.gain.exponentialRampToValueAtTime === "function") {
+        gain2.gain.exponentialRampToValueAtTime(0.01, t1 + 0.06);
+      }
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(t1);
+      osc2.stop(t1 + 0.075);
+    } catch {
+      /* best effort audio */
+    }
+
+    audioSuspendTimer = setTimeout(() => {
+      audioSuspendTimer = null;
+      if (gen !== audioToneGen) return;
+      suspendAudioCtx(ctx);
+    }, 200);
+  }
+
+  function triggerSnapshotFlashEffect() {
+    playCameraShutterSound();
+    try {
+      const flash = document.createElement("div");
+      flash.className = "snapshot-screen-flash";
+      document.body.appendChild(flash);
+      flash.addEventListener("animationend", () => {
+        flash.remove();
+      });
+      setTimeout(() => {
+        if (flash.parentNode) flash.remove();
+      }, 350);
+    } catch {
+      /* best effort DOM */
+    }
+  }
   // Play only when the user isn't looking at the Grok panel — the "notify me when
   // I've stepped away" case (#59). A focused, visible panel means they'll see the
   // result without a beep. hasFocus() is false when the editor/another app has
@@ -3040,6 +3115,9 @@
       voiceKeyterms: Array.isArray(state.voiceKeyterms) ? state.voiceKeyterms : [],
       telemetryEnabled: state.telemetryEnabled,
       thumbsFeedback: !!state.thumbsFeedback,
+      snapshotAutoAttach: state.snapshotAutoAttach !== false,
+      snapshotSavePath: typeof state.snapshotSavePath === "string" ? state.snapshotSavePath : "",
+      snapshotShortcut: typeof state.snapshotShortcut === "string" && state.snapshotShortcut ? state.snapshotShortcut : (isMacPlatform() ? "Cmd+Alt+S" : "Ctrl+Alt+S"),
       promptNav: !!state.promptNav,
       expandDiffCard: !!state.expandDiffCard,
       providers: state.providers || [],
@@ -3152,6 +3230,15 @@
         break;
       case "thumbsFeedback":
         state.thumbsFeedback = !!value;
+        break;
+      case "snapshotAutoAttach":
+        state.snapshotAutoAttach = !!value;
+        break;
+      case "snapshotSavePath":
+        state.snapshotSavePath = String(value || "");
+        break;
+      case "snapshotShortcut":
+        state.snapshotShortcut = String(value || "");
         break;
       default:
         break;
@@ -16819,6 +16906,9 @@
         }
         if (typeof msg.telemetryEnabled === "boolean") state.telemetryEnabled = msg.telemetryEnabled;
         if (typeof msg.thumbsFeedback === "boolean") state.thumbsFeedback = msg.thumbsFeedback;
+        if (typeof msg.snapshotAutoAttach === "boolean") state.snapshotAutoAttach = msg.snapshotAutoAttach;
+        if (typeof msg.snapshotSavePath === "string") state.snapshotSavePath = msg.snapshotSavePath;
+        if (typeof msg.snapshotShortcut === "string") state.snapshotShortcut = msg.snapshotShortcut;
         applyThinkingVisibility();
         applyExpandCommandOutputs();
         syncGearPlacement();
@@ -17096,6 +17186,21 @@
         break;
       case "thumbsFeedback":
         state.thumbsFeedback = !!msg.value;
+        break;
+      case "snapshotAutoAttach":
+        state.snapshotAutoAttach = !!msg.value;
+        refreshSettingsOverlay();
+        break;
+      case "snapshotSavePath":
+        state.snapshotSavePath = typeof msg.value === "string" ? msg.value : "";
+        refreshSettingsOverlay();
+        break;
+      case "snapshotShortcut":
+        state.snapshotShortcut = typeof msg.value === "string" ? msg.value : "";
+        refreshSettingsOverlay();
+        break;
+      case "snapshotTaken":
+        triggerSnapshotFlashEffect();
         break;
       case "speechSummary": {
         const pending = pendingSpeechSummary;

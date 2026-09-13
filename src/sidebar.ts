@@ -974,6 +974,10 @@ export class GrokSidebar {
     "setVoiceKeyterms",
     "setTelemetryEnabled",
     "setThumbsFeedback",
+    "setSnapshotAutoAttach",
+    "setSnapshotSavePath",
+    "setSnapshotShortcut",
+    "pickSnapshotFolder",
     "openGlobalConfig",
     "openProviderConfig",
     "openProjectConfig",
@@ -2756,6 +2760,24 @@ export class GrokSidebar {
         for (const session of [this.focused, ...this.pool]) {
           this.refreshFeedbackAvailability(session);
         }
+      }
+      if (e.affectsConfiguration("grok.snapshot.autoAttach") || e.affectsConfiguration("grok.snapshot")) {
+        this.post({
+          type: "snapshotAutoAttach",
+          value: this.host.getConfiguration("grok").get<boolean>("snapshot.autoAttach", true),
+        });
+      }
+      if (e.affectsConfiguration("grok.snapshot.savePath") || e.affectsConfiguration("grok.snapshot")) {
+        this.post({
+          type: "snapshotSavePath",
+          value: this.host.getConfiguration("grok").get<string>("snapshot.savePath", ""),
+        });
+      }
+      if (e.affectsConfiguration("grok.snapshot.shortcut") || e.affectsConfiguration("grok.snapshot")) {
+        this.post({
+          type: "snapshotShortcut",
+          value: this.host.getConfiguration("grok").get<string>("snapshot.shortcut", "Ctrl+Alt+S"),
+        });
       }
     });
     const authWatcher = this.host.createFileSystemWatcher(
@@ -11451,6 +11473,18 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
         await this.host.getConfiguration("grok")
           .update("thumbsFeedback", !!msg.value, "global");
         break;
+      case "setSnapshotAutoAttach":
+        await this.host.getConfiguration("grok")
+          .update("snapshot.autoAttach", !!msg.value, "global");
+        break;
+      case "setSnapshotSavePath":
+        await this.host.getConfiguration("grok")
+          .update("snapshot.savePath", typeof msg.value === "string" ? msg.value.trim() : "", "global");
+        break;
+      case "setSnapshotShortcut":
+        await this.host.getConfiguration("grok")
+          .update("snapshot.shortcut", typeof msg.value === "string" ? msg.value.trim() : "", "global");
+        break;
       case "runInstallCmd": {
         // Host-owned confirmation, because this is one of the two messages that
         // run something. The renderer does not supply the command — it is the
@@ -11728,6 +11762,20 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
       case "pickFile":
         await this.trackAttach(this.pickFileFromComputer());
         break;
+      case "pickSnapshotFolder": {
+        const picked = await this.host.showOpenDialog({
+          canSelectFiles: false,
+          canSelectFolders: true,
+          canSelectMany: false,
+          openLabel: "Select Snapshot Folder",
+        });
+        if (picked && picked.length && picked[0]) {
+          const folderPath = picked[0];
+          await this.host.getConfiguration("grok")
+            .update("snapshot.savePath", folderPath, "global");
+        }
+        break;
+      }
       case "mentionQuery": {
         // Answer from the TTL-cached index; a failed build degrades to an empty
         // list (the popover just hides) rather than an error surface.
@@ -15629,6 +15677,16 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
     }
   }
 
+  /** Public entry for snapshot command to attach a captured screen snapshot. */
+  public async attachSnapshot(srcPath: string): Promise<Session | false | undefined> {
+    this.post({ type: "snapshotTaken" });
+    const session = await this.importImageFromDisk(srcPath);
+    if (session && session === this.focused) {
+      this.revealAndFocusComposer();
+    }
+    return session;
+  }
+
   /** Copy an on-disk raster image into staging as a vision attachment, keeping
    *  the workspace-relative origin so the prompt tag can carry the real file
    *  identity. Three outcomes, and they are not interchangeable: the owning
@@ -16337,6 +16395,9 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
       readRepliesAloud: cfg.get("readRepliesAloud", false),
       telemetryEnabled: cfg.get("telemetry.enabled", true),
       thumbsFeedback: cfg.get("thumbsFeedback", false),
+      snapshotAutoAttach: cfg.get("snapshot.autoAttach", true),
+      snapshotSavePath: cfg.get("snapshot.savePath", ""),
+      snapshotShortcut: cfg.get("snapshot.shortcut", process.platform === "darwin" ? "Cmd+Alt+S" : "Ctrl+Alt+S"),
       appPurpose: this.appPurpose() || DEFAULT_APP_PURPOSE,
       ...(commandLanguage ? { commandLanguage } : {}),
       // For a remote's About page. A phone is looking at neither GUI,
@@ -20257,6 +20318,9 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
         ),
         telemetryEnabled: cfg.get("telemetry.enabled", true),
         thumbsFeedback: cfg.get("thumbsFeedback", false),
+        snapshotAutoAttach: cfg.get("snapshot.autoAttach", true),
+        snapshotSavePath: cfg.get("snapshot.savePath", ""),
+        snapshotShortcut: cfg.get("snapshot.shortcut", process.platform === "darwin" ? "Cmd+Alt+S" : "Ctrl+Alt+S"),
         providers: this.providerStateMessage().providers,
         providersChecking: this.providerRefreshInFlight,
         githubState: this.githubStatePayload(),

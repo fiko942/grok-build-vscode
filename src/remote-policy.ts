@@ -490,6 +490,7 @@ export const INBOUND_DISPOSITION: Record<WebviewMsg["type"], InboundDisposition>
   moveView: "host-local",
   dropFile: "host-local",
   pickFile: "host-local",
+  pickSnapshotFolder: "host-local",
   voiceStart: "host-local",
   voiceStop: "host-local",
   remoteVoiceStart: "propose",
@@ -516,6 +517,9 @@ export const INBOUND_DISPOSITION: Record<WebviewMsg["type"], InboundDisposition>
   // Same class as the other General host prefs: the desk owns the switch,
   // remotes receive the live value and honour it for thumbs.
   setThumbsFeedback: "host-local",
+  setSnapshotAutoAttach: "host-local",
+  setSnapshotSavePath: "host-local",
+  setSnapshotShortcut: "host-local",
   // Machine-global disclosure preference in ~/.grok/client-state — the web
   // client inherits and may set it (host-owned store, not VS Code settings).
   setAppPurpose: "propose",
@@ -658,6 +662,7 @@ export const REMOTE_REQUIRES_BOUND_SESSION: Record<WebviewMsg["type"], boolean> 
   moveView: false,
   dropFile: true,
   pickFile: true,
+  pickSnapshotFolder: true,
   voiceStart: true,
   voiceStop: true,
   // Remote voice owns its OWN admission check, per client rather than per
@@ -682,6 +687,9 @@ export const REMOTE_REQUIRES_BOUND_SESSION: Record<WebviewMsg["type"], boolean> 
   setVoiceKeyterms: false,
   setTelemetryEnabled: false,
   setThumbsFeedback: false,
+  setSnapshotAutoAttach: false,
+  setSnapshotSavePath: false,
+  setSnapshotShortcut: false,
   setAppPurpose: false,
   summarizeSpeech: true,
   requestImageFull: true,
@@ -957,6 +965,10 @@ export const OUTBOUND_DISPOSITION: Record<HostMsg["type"], OutboundDisposition> 
   fontScale: "mirror",
   telemetryEnabled: "mirror",
   thumbsFeedback: "mirror",
+  snapshotAutoAttach: "mirror",
+  snapshotSavePath: "mirror",
+  snapshotShortcut: "mirror",
+  snapshotTaken: "mirror",
   grokUpdateStatus: "mirror",
   // Desk-only installer notice / restart — a remote has nothing useful to do with it.
   updateAvailable: "host-local",
@@ -1105,6 +1117,10 @@ export const OUTBOUND_PROJECT_AUTH: Record<HostMsg["type"], OutboundProjectAuth>
   fontScale: "none",
   telemetryEnabled: "none",
   thumbsFeedback: "none",
+  snapshotAutoAttach: "none",
+  snapshotSavePath: "none",
+  snapshotShortcut: "none",
+  snapshotTaken: "none",
   grokUpdateStatus: "none",
   updateAvailable: "none",
   updateReady: "none",
