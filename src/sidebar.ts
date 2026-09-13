@@ -11197,14 +11197,30 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
           ? msg.provider
           : this.providerForRequestedModel(msg.modelId, session.provider);
         const { effort } = msg;
-        // One close, one message: the picker commits model and effort together
-        // so the two cannot race (media/chat.js, flushPicker). Model first —
-        // a compatible switch carries a live effort override through when the
-        // target offers it, so applying the level afterwards is what settles a
+        // One close, one message, and at most ONE restart. The level is
+        // remembered BEFORE the switch, against the provider the switch aims
+        // at, so a restart the switch triggers spawns at it; the live RPC
+        // afterwards is only for the case where nothing restarted — a
+        // compatible `setModel` carries a live effort override through when
+        // the target offers it, so the level must be re-stated to settle a
         // disagreement between the two.
+        //
+        // Comparing the session id is the whole guard, and it is load-bearing:
+        // `startSession` clears `hasHistory`, so a Summarize & Restart leaves
+        // a session that HOLDS the summary looking empty. Running the effort
+        // path over that read it as empty, deleted it on disk, and restarted
+        // again — the person asked to keep the thread and got a blank one. The
+        // same comparison collapses the cross-provider double restart.
+        //
+        // Everything stays inside trackPickerChange: it must set `pickerChange`
+        // before this handler yields, or a `send` posted behind it sees none.
         await this.trackPickerChange((async () => {
+          const before = session.activeSessionId;
+          if (typeof effort === "string") await this.rememberProviderEffort(provider, effort);
           await this.switchModel(msg.modelId, session, requester, provider);
-          if (typeof effort === "string") await this.applyEffort(effort, session, origin, clientId, requester);
+          if (typeof effort === "string" && session.activeSessionId === before) {
+            await this.applyEffort(effort, session, origin, clientId, requester);
+          }
         })());
         break;
       }

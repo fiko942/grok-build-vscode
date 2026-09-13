@@ -171,6 +171,32 @@ describe("effort picker persistence", () => {
     expect(reached).toEqual(["send"]);
   });
 
+  it("leaves a summarized restart alone instead of finishing it off as an empty session", async () => {
+    const { sidebar, session, cfg } = picker("grok");
+    session.activeSessionId = "before";
+    // What Summarize & Restart leaves behind: a session that HOLDS the summary,
+    // and whose `hasHistory` the restart's own startSession has just cleared.
+    sidebar.switchModel = vi.fn(async () => {
+      session.activeSessionId = "holds-the-summary";
+      session.hasHistory = false;
+    });
+
+    await sidebar.onMessage(
+      { type: "setModel", modelId: "grok-composer-2.5", effort: "low" },
+      "local",
+    );
+
+    // Read as empty, that session was restarted again and deleted on disk --
+    // the person asked to keep the thread and got a blank one.
+    expect(sidebar.startSession).not.toHaveBeenCalled();
+    expect(sidebar.discardRestartedEmptySession).not.toHaveBeenCalled();
+    expect(session.client!.setReasoningEffort).not.toHaveBeenCalled();
+    expect(session.activeSessionId).toBe("holds-the-summary");
+    // The restart still spawned at the level the picker was showing, because
+    // it is remembered BEFORE the switch rather than applied after it.
+    expect(cfg.update).toHaveBeenCalledWith("defaultEffort", "low", "global");
+  });
+
   it("does not let a restart prompt nobody answers swallow the send behind it", async () => {
     const { sidebar, session } = picker("claude");
     vi.mocked(session.client!.setReasoningEffort).mockResolvedValue(false);

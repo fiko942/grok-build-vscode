@@ -15470,6 +15470,17 @@
   }
 
   function sendOrStop() {
+    // A model or effort the picker is still SHOWING belongs to this send. The
+    // document's own click listener flushes on the way out, but it sits on the
+    // bubble phase -- this button's handler runs first, so without this line
+    // `send` reaches the host BEFORE `setModel` and the prompt runs on the
+    // model the person just replaced (and a switch that restarts tears the
+    // client down under the turn). Keeping the picker open made "pick, then
+    // Send" the natural gesture, so this is now the ordinary path, not a
+    // corner. Committing here is also what gives the host a `pickerChange` for
+    // `handleSend` to wait on. Idempotent: the close that follows posts
+    // nothing, and a flush with nothing pending posts nothing either.
+    flushPicker();
     if (state.sessionSuperseded) return;
     if (state.onboardingMode === "no-project") return;
     if (state.busy) {

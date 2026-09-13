@@ -148,7 +148,7 @@ When Grok runs a Deep Research, Workflow, or Goal task, a progress card streams 
 <details>
 <summary><strong>Context & cost</strong> — what's in the window, and what the turns actually bill</summary>
 
-Click the **context donut** for the exact `used / window (%)`, plus what the conversation has **billed** — input, cache read, output, and the CLI-reported **USD cost** — as a session total and a per-turn split with its model calls. **Compact conversation** lives here too, right next to the number that tells you when you need it.
+Click the **context donut** for `used / window (%)` — said in thousands, with the exact count still on the donut's own tooltip — plus what the conversation has **billed** — input, cache read, output, and the CLI-reported **USD cost** — as a session total and a per-turn split with its model calls. **Compact conversation** lives here too, right next to the number that tells you when you need it.
 
 ![The context popover — window usage, billed totals, and Compact](https://raw.githubusercontent.com/phuryn/grok-build-vscode/main/docs/screenshots/context.png)
 
@@ -254,9 +254,9 @@ Grok opens in the **Secondary Side Bar** (right side, next to other AI tools). P
 ## Quick start
 
 1. **Open** the Grok view (`Ctrl/Cmd+;`, or **Grok: Open** from the command palette) — it lives in the Secondary Side Bar by default.
-2. **Type a prompt** and press **Enter**. Grok streams its answer, showing a *Thinking…* line while it reasons. Want the full reasoning inline? Turn on **Show thinking traces** in the gear menu → *Config & debug*.
+2. **Type a prompt** and press **Enter**. Grok streams its answer, showing a *Thinking…* line while it reasons. Want the full reasoning inline? Turn on **Show thinking traces** in Settings.
 3. **Approve actions.** When Grok wants to write a file or run a command it may raise a permission card — preview an edit in the native **diff editor**, with full-file context focused on the first changed line, then *Allow once / always / Reject*.
-4. **Pick your mode** (Agent / Plan / Auto accept), **model**, and **reasoning effort** from the bottom toolbar and gear menu.
+4. **Pick your mode** (Agent / Plan / Auto accept), **model**, and **reasoning effort** from the bottom toolbar and model chip.
 5. **Resume anytime** — the clock icon lists past sessions for this project.
 
 ---
@@ -354,8 +354,8 @@ This extension is complete on its own. Two optional companions share the same
 chat UI and the same Grok Build CLI:
 
 - **[AFK Pilot](https://afkpilot.com)** — watch, approve, and steer this
-  extension's agent from your phone or any browser. Pair once from the gear
-  menu.
+  extension's agent from your phone or any browser. Pair once from **Remote
+  control** in the **+** menu.
 - **[Grok Build Desktop (Community)](https://afkpilot.com/desktop)** — the same
   agent as a standalone app for Windows and macOS, for machines where you would
   rather not install an editor. Free.

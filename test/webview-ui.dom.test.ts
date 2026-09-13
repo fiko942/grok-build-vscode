@@ -1093,6 +1093,29 @@ describe("gear settings lock (model + effort disabled while busy / priming)", ()
     expect(types(posted)).not.toContain("setEffort");
   });
 
+  it("commits the picker BEFORE the send, so the prompt runs on the model just picked", () => {
+    const { window, posted, doc } = bootWithModels();
+    (doc.getElementById("input") as HTMLTextAreaElement).value = "hello";
+    click(window, $(doc, "gear-btn"));
+    const composer = [...doc.querySelectorAll("#gear-popover .toolbar-popover-item")]
+      .find((el) => el.textContent!.includes("Composer 2.5 Fast")) as HTMLElement;
+    click(window, composer);
+
+    // Send WITHOUT closing the picker first -- which keeping it open makes the
+    // natural gesture. The document's own close listener is on the bubble
+    // phase, so it runs AFTER this button's handler: without a flush of its
+    // own, `send` would reach the host first and the turn would run on the
+    // model that was just replaced.
+    click(window, doc.getElementById("send-btn") as HTMLButtonElement);
+
+    const order = types(posted);
+    expect(order).toContain("setModel");
+    expect(order).toContain("send");
+    expect(order.indexOf("setModel")).toBeLessThan(order.indexOf("send"));
+    // And the close that follows the click has nothing left to post.
+    expect(order.filter((t) => t === "setModel")).toHaveLength(1);
+  });
+
   it("groups remote empty-session models deterministically and switches providers additively", () => {
     const h = bootWebview({ remote: true });
     dispatch(h.window, {
