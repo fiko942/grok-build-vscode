@@ -7475,6 +7475,7 @@
     // transcript must not grow an empty-state panel on top of it.
     startRailNewTransition(repoCwd, "creating", previousSessionId);
     resetForNewSession();
+    focusComposerIfAllowed();
     vscode.postMessage({ type: "newSession" });
   }
 
@@ -8520,18 +8521,20 @@
   }
 
   function setConversationLoading(active) {
-    // Either branch stamps the empty-state line. A painted conversation must
-    // not pick up Connected / Loading conversation, including when those
-    // messages arrive before clearMessages has marked the nodes.
-    if (welcomeHoldActive()) return;
     if (active) {
-      // Deliberately the only indicator. A second banner above the transcript
-      // used to double it up, and the transcript arrives as one batch anyway \u2014
-      // so the wait that's worth announcing happens while the welcome is still
-      // on screen, and the banner only ever duplicated this line.
-      setWelcomeStatus("Loading conversation", true);
+      if (!welcomeHoldActive()) setWelcomeStatus("Loading conversation", true);
+      let ind = $("transcript-loading-bar");
+      if (!ind && messagesEl) {
+        ind = document.createElement("div");
+        ind.id = "transcript-loading-bar";
+        ind.className = "transcript-loading-indicator";
+        messagesEl.insertBefore(ind, messagesEl.firstChild);
+      }
       return;
     }
+    const ind = $("transcript-loading-bar");
+    if (ind) ind.remove();
+    if (welcomeHoldActive()) return;
     const ver = $("welcome-version");
     if (ver && ver.dataset.status === "Loading conversation") {
       setWelcomeStatus(state.cliVersion ? `Connected \u00b7 v${state.cliVersion}` : "Connected", false);

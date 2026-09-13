@@ -816,7 +816,7 @@ export class GrokSidebar {
   /** In-memory cache for repo catalog to eliminate sync disk stat spikes on session switches. */
   private repoCatalogCache: { at: number; entries: RepoListEntry[] } | null = null;
   /** In-memory cache for session indexes per repo cwd. */
-  private readonly sessionIndexCache = new Map<string, { at: number; entries: SessionIndexEntry[] }>();
+  private sessionIndexCache: Map<string, { at: number; entries: SessionIndexEntry[] }> = new Map();
   private readonly remoteMentionIndexes = new Map<string, {
     at: number;
     rels: string[];
@@ -5982,6 +5982,7 @@ Only continue if you trust this code.`,
   }
 
   private invalidateSessionIndex(cwd?: string): void {
+    if (!this.sessionIndexCache) return;
     if (cwd) {
       this.sessionIndexCache.delete(normalizeRepoPath(cwd));
     } else {
@@ -5992,6 +5993,9 @@ Only continue if you trust this code.`,
   private cachedIndexSessions(cwd: string, grokHome: string, log: (m: string) => void): SessionIndexEntry[] {
     const key = normalizeRepoPath(cwd);
     const now = Date.now();
+    if (!this.sessionIndexCache) {
+      this.sessionIndexCache = new Map();
+    }
     const hit = this.sessionIndexCache.get(key);
     if (hit && now - hit.at < 3500) {
       return hit.entries;
@@ -17694,7 +17698,13 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
       wv.postMessage({ type: "clearMessages" });
       if (identity) wv.postMessage(identity);
       wv.postMessage({ type: "historyReplay", active: true });
-      for (const m of session.buffer) wv.postMessage(this.localizeHistoryMessage(m, wv));
+      const batch: HostMsg[] = [];
+      for (const m of session.buffer) {
+        batch.push(this.localizeHistoryMessage(m, wv));
+      }
+      if (batch.length) {
+        wv.postMessage({ type: "historyBatch", messages: batch });
+      }
       wv.postMessage({ type: "historyReplay", active: false });
       for (const m of sessionUiSnapshot(
         session,
