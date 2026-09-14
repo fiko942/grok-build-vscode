@@ -818,6 +818,8 @@ export class GrokSidebar {
   private repoCatalogCache: { at: number; entries: RepoListEntry[] } | null = null;
   /** In-memory cache for session indexes per repo cwd. */
   private sessionIndexCache: Map<string, { at: number; entries: SessionIndexEntry[] }> = new Map();
+  /** Tracks the latest requested local session ID to quickly cancel and bypass stale in-flight loads. */
+  private latestLocalOpenTargetId: string | null = null;
   private readonly remoteMentionIndexes = new Map<string, {
     at: number;
     rels: string[];
@@ -19249,6 +19251,7 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
    * session and load this one cold from grok's on-disk history into a fresh member.
    */
   private async openSession(id: string, sessionCwd?: string): Promise<void> {
+    this.latestLocalOpenTargetId = id;
     // The user's open starts HERE, not in startSession. See the note there.
     const clock = new OpenClock();
     const claim = this.reserveSessionLoad(id);
@@ -19281,7 +19284,10 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
     // Opening a conversation is the other moment the user is looking straight at
     // this repo's history — and the moment the session they just left became
     // abandonable. Only on success: a load that threw has told us nothing.
-    this.sweepEmptySessions(this.sessionCwd(this.focused));
+    // Run sweep asynchronously so it never blocks the main message loop.
+    setImmediate(() => {
+      this.sweepEmptySessions(this.sessionCwd(this.focused));
+    });
     // The history list follows the conversation the LOCAL user just opened.
     // With a rail in VS Code you can open one from another project, and leaving
     // the list on the old project meant reading a conversation from B while the
@@ -19380,6 +19386,9 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
   }
 
   private async openSessionReserved(id: string, sessionCwd?: string, clock?: OpenClock): Promise<void> {
+    if (this.latestLocalOpenTargetId && this.latestLocalOpenTargetId !== id) {
+      return;
+    }
     // A session held by a remote tab is not off-limits here: the desk JOINS it
     // — focusSession replays the shared buffer into the webview and already
     // mirrors the replay to remote holders, and emit() keeps serving both
@@ -19424,7 +19433,9 @@ ${many ? `${working.length} conversations are` : "A conversation is"} still work
       this.focused = held;
       this.pool.add(this.focused);
       await this.followSessionWorkspace(this.focused);
-      await this.startSession(id, this.focused, "ensure", clock);
+      await this.startSession(id, this.focused, "ensure", clock, {
+        canReplace: () => !this.latestLocalOpenTargetId || this.latestLocalOpenTargetId === id,
+      });
       this.markRead(this.focused);
       this.postRepoCatalog();
       return;
