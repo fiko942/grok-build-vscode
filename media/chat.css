@@ -2014,6 +2014,26 @@ a.onb-action.onb-secondary:hover {
   flex-direction: column;
   gap: 6px;
 }
+.queued-item {
+  position: relative;
+  user-select: none;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+.queued-item[draggable="true"] {
+  cursor: grab;
+}
+.queued-item[draggable="true"]:active {
+  cursor: grabbing;
+}
+.queued-item.drag-over-above .msg-bubble {
+  border-top: 2px solid var(--vscode-focusBorder, #007acc) !important;
+}
+.queued-item.drag-over-below .msg-bubble {
+  border-bottom: 2px solid var(--vscode-focusBorder, #007acc) !important;
+}
+.queued-item.dragging {
+  opacity: 0.45;
+}
 /* A 5% tint composites to nothing in forced-colors mode ÔÇö a border is the
    dependable affordance there. */
 @media (forced-colors: active) {

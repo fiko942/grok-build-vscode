@@ -402,6 +402,7 @@ export function parseWebviewMsg(raw: unknown): WebviewMsg | null {
       if (!isString(raw.text)) return null;
       if (raw.chips !== undefined && !Array.isArray(raw.chips)) return null;
       if (!opt(raw.fromQueue, isBoolean)) return null;
+      if (!opt(raw.index, isNumber)) return null;
       break;
     case "clearQueuedSends":
       if (!opt(raw.restore, isBoolean)) return null;
@@ -410,7 +411,11 @@ export function parseWebviewMsg(raw: unknown): WebviewMsg | null {
       if (raw.rating !== -1 && raw.rating !== 0 && raw.rating !== 1) return null;
       break;
     case "dequeueSend":
+    case "removeQueuedSend":
       if (!isNumber(raw.index)) return null;
+      break;
+    case "reorderQueuedSends":
+      if (!isNumber(raw.fromIndex) || !isNumber(raw.toIndex)) return null;
       break;
     case "rewindSession":
       if (!opt(raw.userBubbleIndex, isNumber)) return null;
