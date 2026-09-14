@@ -15704,11 +15704,13 @@
       micBtn.innerHTML = ICON.spinner;
       micBtn.title = "Transcribing…";
       micBtn.disabled = true;
-    } else if (IS_REMOTE && !state.voiceConfigured && !voiceNeedsGrokAccount()) {
-      micBtn.innerHTML = ICON.mic;
-      micBtn.title = "Voice dictation is unavailable because the host has no Speech-to-Text credential";
-      micBtn.disabled = true;
     } else {
+      // A remote with no host credential used to be DISABLED here, with the
+      // reason in a `title`. On a phone that is a dead button and nothing
+      // else: there is no hover, so the tooltip never renders, and a tap
+      // produces silence. The host already answers a credential-less start
+      // with a plain error naming what is missing, so the button stays live
+      // and lets it — the same arrangement the desk has always had.
       micBtn.innerHTML = ICON.mic;
       micBtn.title = state.voiceConfigured
         ? "Voice control"
@@ -15721,8 +15723,17 @@
     micBtn.classList.toggle("needs-setup", !micBtn.disabled && state.mic === "idle" && !state.voiceConfigured);
   }
 
+  /** "Connect Grok" is the right advice only when Grok is the missing piece.
+   *  Since a second backend exists, a host can have a credential that this
+   *  provider's pick does not use — and there the host's own error is more
+   *  precise than any wording here, so this stays narrow: nothing usable for
+   *  EITHER vendor, and Grok not connected. Gating on the mere presence of
+   *  `voiceBackendState` (as this did briefly) makes it permanently false,
+   *  because the host always sends that field now. */
   function voiceNeedsGrokAccount() {
-    return !state.voiceBackendState && !!state.providersKnown && !state.voiceConfigured
+    const backends = state.voiceBackendState;
+    if (backends && (backends.hasXai || backends.hasOpenAi)) return false;
+    return !!state.providersKnown && !state.voiceConfigured
       && !state.providers.some((provider) => provider.id === "grok" && provider.connected);
   }
 
@@ -15963,6 +15974,15 @@
     } else if (state.mic === "idle") {
       if (voiceNeedsGrokAccount()) {
         void explainVoiceNeedsGrok();
+        return;
+      }
+      // The HOST owns the credential and is the only thing that can say which
+      // one is missing — an explicit backend choice with no key for it reads
+      // nothing like "connect Grok". Ask it rather than deciding here, exactly
+      // as the desk does. No microphone is touched on this path, so a tap that
+      // is going to be refused costs no permission prompt.
+      if (!state.voiceConfigured) {
+        vscode.postMessage({ type: "remoteVoiceStart" });
         return;
       }
       void startBrowserMic();
