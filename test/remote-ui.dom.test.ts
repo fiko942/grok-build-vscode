@@ -94,7 +94,7 @@ describe("remote mic when the host has no speech-to-text credential", () => {
   });
 
   it("does not mistake a present credential for a missing account", () => {
-    const { window, doc } = bootRemotePcm();
+    const { window, doc, posted } = bootRemotePcm();
     dispatch(window, { type: "providerState", checking: false, providers: [
       { id: "grok", connected: false }, { id: "claude", connected: true },
     ] });
@@ -107,6 +107,13 @@ describe("remote mic when the host has no speech-to-text credential", () => {
     const mic = doc.getElementById("mic-btn") as HTMLButtonElement;
     expect(mic.disabled).toBe(false);
     expect(mic.title).not.toContain("Grok");
+
+    // Assert the TAP, not only the tooltip. A title is what a phone cannot
+    // show, so a test that stops there is checking the half of this that was
+    // never the problem.
+    click(window, mic);
+    expect(posted.map((p) => p.type)).toContain("remoteVoiceStart");
+    expect(doc.body.textContent).not.toContain("Connect Grok");
   });
 });
 
