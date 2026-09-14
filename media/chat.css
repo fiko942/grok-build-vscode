@@ -1306,6 +1306,11 @@ a:hover {
   white-space: nowrap;
   overflow-wrap: normal;
 }
+.subscription-usage { border-top: 1px solid var(--vscode-panel-border); margin-top: 10px; }
+.subscription-window + .subscription-window { margin-top: 10px; }
+.subscription-fullness { height: 5px; border-radius: 3px; overflow: hidden; margin: 5px 10px; background: var(--vscode-editorWidget-border, #6666); }
+.subscription-fullness > i { display: block; height: 100%; background: var(--vscode-textLink-foreground); }
+.subscription-usage .popover-fineprint { margin-top: 4px; }
 /* .history-popover sets display:flex, which would otherwise beat the UA
    [hidden]{display:none} rule (author styles win), so it could never hide. */
 .toolbar-popover[hidden] { display: none; }
@@ -4542,13 +4547,15 @@ body.dragging { outline: 2px dashed var(--vscode-focusBorder); outline-offset: -
   line-height: 1.35;
   font-family: var(--vscode-font-family);
 }
-/* The chosen answer, shown once the card is answered ÔÇö kept bright (the card
-   isn't dimmed) so it's an unmistakable "grok got this" signal. */
+/* Keep submitted and recovered answers readable and copyable. */
 .card.question.resolved { opacity: 1; }
 .card .question-answer {
   font-size: 13px;
   font-weight: 600;
   color: var(--vscode-charts-green, #89d185);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 .card .question-options { display: flex; flex-direction: column; gap: 4px; }
 .card button.question-option {

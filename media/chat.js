@@ -10,6 +10,7 @@
       setAppPurpose: ["appPurpose", "this app to " + (message.value === "coding" ? "Coding" : "Knowledge work")],
       setVoiceSendPhrase: ["voiceSendPhrase", "the voice send phrase to “" + message.value + "”"],
       setVoiceKeyterms: ["voiceKeyterms", "voice keyterms to “" + (Array.isArray(message.value) ? message.value.join(", ") : "") + "”"],
+      setVoiceBackend: ["voiceBackend", "the transcription backend to “" + message.value + "”"],
       setTelemetryEnabled: ["telemetryEnabled", "anonymous analytics to " + (message.value ? "on" : "off")],
       setThumbsFeedback: ["thumbsFeedback", "feedback buttons to " + (message.value ? "on" : "off")],
     };
@@ -68,6 +69,7 @@
       if (msg.type === "voiceConfigured") {
         if (pending.field === "voiceSendPhrase") value = msg.sendPhrase;
         if (pending.field === "voiceKeyterms") value = msg.keyterms;
+        if (pending.field === "voiceBackend") value = msg.backendState && msg.backendState.preference;
       }
       if (msg.type === "repos" && pending.message.cwd) {
         const repo = (msg.entries || []).find((entry) => sameCwd(entry.cwd, pending.message.cwd));
@@ -496,14 +498,21 @@
     codex: "Ask GPT\u2026",
     claude: "Ask Claude\u2026",
   };
-  const EFFORT_TOOLTIPS = {
-    none: "None — no extra reasoning",
-    minimal: "Minimal — least reasoning",
-    low: "Low — fast, lightweight reasoning",
-    medium: "Medium — balanced",
-    high: "High — deeper reasoning",
-    xhigh: "XHigh — deepest reasoning, slowest",
+  // What each level MEANS. The name is prepended from `effortLabel` rather than
+  // spelled here, so one level cannot be called two things in one popover — the
+  // strip header read "Extra high" while its own tip said "XHigh".
+  const EFFORT_BLURBS = {
+    none: "no extra reasoning",
+    minimal: "least reasoning",
+    low: "fast, lightweight reasoning",
+    medium: "balanced",
+    high: "deeper reasoning",
+    xhigh: "deepest reasoning, slowest",
   };
+  function effortTooltip(level) {
+    const blurb = EFFORT_BLURBS[level];
+    return blurb ? `${effortLabel(level)} — ${blurb}` : effortLabel(level);
+  }
 
   // The effort levels the model picker OFFERS: the ACTIVE model's advertised menu
   // (`models[]._meta.reasoningEfforts`, already delivered to the webview on the
@@ -624,6 +633,7 @@
     // running turn hears you now, and it does not. See steerableProvider().
     lastTurnUsage: null, // last prompt's billing split (#53), for the donut popover
     sessionUsage: null, // session-cumulative billing — summed by the host, not grok
+    subscriptionWindows: [], // latest account capacity; never part of the transcript
     // Structured session/info addends, bound to the `used` they arrived with.
     // Occupancy-only frames keep this; an open popover re-fetches session/info.
     contextBreakdown: null,
@@ -2208,6 +2218,7 @@
     // by the host. Render the cached snapshot immediately, then re-render when
     // a fresh structured response arrives.
     vscode.postMessage({ type: "refreshContextDetails" });
+    vscode.postMessage({ type: "refreshSubscriptionUsage" });
     renderContextPopover();
   }
 
@@ -2311,7 +2322,59 @@
     }
     contextPopover.appendChild(act);
 
-    // KNOWLEDGE WORK STOPS HERE: the number and the action on it, nothing else.
+    const subscription = document.createElement("section");
+    subscription.className = "subscription-usage";
+    subscription.setAttribute("aria-label", "Subscription usage across your account");
+    section("Subscription usage · account", subscription);
+    const note = (text, parent = subscription) => {
+      const el = document.createElement("div");
+      el.className = "popover-fineprint";
+      el.textContent = text;
+      parent.appendChild(el);
+    };
+    const validDate = (value) => typeof value === "string" && Number.isFinite(Date.parse(value));
+    const windows = state.subscriptionWindows.filter((window) =>
+      window && typeof window.usedPercent === "number" && Number.isFinite(window.usedPercent)
+      && window.usedPercent >= 0 && window.usedPercent <= 100
+      && typeof window.label === "string" && window.label.trim()
+      && typeof window.periodType === "string" && window.periodType.trim()
+      && validDate(window.observedAt)
+      && (window.periodStart === undefined || validDate(window.periodStart))
+      && (window.periodEnd === undefined || validDate(window.periodEnd)));
+    if (!windows.length) {
+      note("No subscription usage reported yet.");
+    }
+    const formatPercent = (value) => new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value);
+    const formatDate = (value) => new Date(value).toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+    });
+    for (const window of windows) {
+      const row = document.createElement("div");
+      row.className = "subscription-window";
+      info(window.label, `${formatPercent(window.usedPercent)}% used · ${formatPercent(100 - window.usedPercent)}% left`, row);
+      const meter = document.createElement("div");
+      meter.className = "subscription-fullness";
+      meter.setAttribute("role", "meter");
+      meter.setAttribute("aria-label", `${window.label} subscription used`);
+      meter.setAttribute("aria-valuemin", "0");
+      meter.setAttribute("aria-valuemax", "100");
+      meter.setAttribute("aria-valuenow", String(window.usedPercent));
+      const fill = document.createElement("i");
+      fill.style.width = window.usedPercent + "%";
+      meter.appendChild(fill);
+      row.appendChild(meter);
+      note(window.periodEnd
+        ? `${Date.parse(window.periodEnd) > Date.now() ? "Resets" : "Reported reset"} ${formatDate(window.periodEnd)}`
+        : "Reset time not reported.", row);
+      note(`Observed ${formatDate(window.observedAt)}`, row);
+      subscription.appendChild(row);
+    }
+    if (windows.length && state.activeProvider === "claude") note("Latest reported window; other limits may apply.");
+    contextPopover.appendChild(subscription);
+
+    // KNOWLEDGE WORK STOPS HERE: the numbers and the action on them, nothing
+    // else. Context occupancy and account capacity both answer "can I keep
+    // going?", which is a question in either purpose.
     //
     // Everything below is the technical account — system prompt, reasoning
     // overhead, tool definitions, per-turn token and cost rows. That is the
@@ -2326,7 +2389,8 @@
     // function does, so returning early skipped them and the donut simply did
     // nothing in the default mode. Found by review; my own test read
     // textContent off the hidden element and passed, which is the same mistake
-    // as proving a package exists instead of proving the thing works.
+    // as proving a package exists instead of proving the thing works. Anything
+    // added ABOVE this line inherits that trap — assert on a SHOWN popover.
     if (!isCodingPurpose()) { showContextPopover(); return; }
 
     // Snapshot addends are internally consistent (overhead from snapshot.used).
@@ -2585,6 +2649,7 @@
     return new Promise((resolve) => {
       const overlay = document.createElement("div");
       overlay.className = "confirm-overlay";
+      if (opts.requestId !== undefined) overlay.dataset.confirmReqId = String(opts.requestId);
       const panel = document.createElement("div");
       panel.className = "confirm-panel";
       const title = document.createElement("div");
@@ -2603,12 +2668,17 @@
       cancelBtn.type = "button";
       cancelBtn.className = "confirm-btn";
       cancelBtn.textContent = "Cancel";
+      let settled = false;
       const done = (v) => {
+        if (settled) return;
+        settled = true;
         document.removeEventListener("keydown", onKey, true);
         overlay.remove();
         unmarkModalAbove(overlay);
-        resolve(opts.booleanResult ? v === "confirm" : v);
+        resolve(v === undefined ? undefined : opts.booleanResult ? v === "confirm" : v);
       };
+      // Host consumption dismisses without sending another decision.
+      overlay._resolveConfirm = () => done(undefined);
       const onKey = (e) => {
         if (e.key === "Escape") { e.stopPropagation(); done("cancel"); }
       };
@@ -3177,6 +3247,7 @@
       voiceConfigured: !!state.voiceConfigured,
       voiceSendPhrase: typeof state.voiceSendPhrase === "string" ? state.voiceSendPhrase : "grok send",
       voiceKeyterms: Array.isArray(state.voiceKeyterms) ? state.voiceKeyterms : [],
+      voiceBackendState: state.voiceBackendState,
       telemetryEnabled: state.telemetryEnabled,
       thumbsFeedback: !!state.thumbsFeedback,
       snapshotAutoAttach: state.snapshotAutoAttach !== false,
@@ -3424,6 +3495,7 @@
 
   function openSettingsOverlay(opener, opts) {
     const api = window.GrokSettings;
+    window.GrokVoiceSettings?.install(api);
     if (!api || typeof api.mount !== "function") return;
     closeSettingsOverlay();
     closePopovers();
@@ -4627,7 +4699,7 @@
       stop.dataset.effort = level;
       stop.setAttribute("role", "radio");
       stop.setAttribute("aria-label", effortLabel(level));
-      stop.title = EFFORT_TOOLTIPS[level] || effortLabel(level);
+      stop.title = effortTooltip(level);
       stop.disabled = locked;
       stop.innerHTML = "<i></i>";
       stop.onclick = (e) => { e.stopPropagation(); preview(level); };
@@ -4697,7 +4769,7 @@
         stop.tabIndex = i === Math.max(0, index) ? 0 : -1;
       });
       value.textContent = !currentModel() ? "Loading…" : level ? effortLabel(level) : "Default";
-      tip.textContent = EFFORT_TOOLTIPS[level] || (level ? effortLabel(level) : "Uses the provider default");
+      tip.textContent = level ? effortTooltip(level) : "Uses the provider default";
     };
     update();
     box.append(header, track, tip);
@@ -9253,7 +9325,8 @@
     "userMessage", "agentStart", "thoughtChunk", "messageChunk", "media",
     "userMessageChunk", "historyBatch", "toolCall", "toolCallUpdate",
     "permissionRequest", "permissionOptions", "permissionResolved",
-    "exitPlanRequest", "planResolved", "questionRequest", "planNotice",
+    "exitPlanRequest", "planResolved", "questionRequest", "questionResolved", "planNotice",
+    "subscriptionUsage",
     "autoCompactNotice", "planBlocked", "promptComplete", "commandOutput",
     "agentReset", "agentError", "agentEnd", "exit", "sessionContext",
     "xaiNotification", "subagentUpdate", "childStream", "runProgress",
@@ -9570,7 +9643,9 @@
     state.historyEventCount = 0;
     state.lastTurnUsage = null;
     state.sessionUsage = null;
+    state.subscriptionWindows = [];
     state.contextBreakdown = null;
+    if (!contextPopover.hidden) renderContextPopover();
     state.suppressReplayTurn = false;
     state.skipUserBubble = false;
     cancelPendingSpeech();
@@ -14462,10 +14537,8 @@
   // Inline card for grok's x.ai/ask_user_question. Renders each question with
   // its options; single-select with one question resolves on click (like the
   // permission card), otherwise the user picks across questions and submits.
-  // The host replies with { outcome: "accepted", answers } — keyed by question
-  // text — which unblocks grok's tool mid-turn. On answer the card COLLAPSES to
-  // the question + a clear green "✓ <chosen>" so it's obvious grok received it
-  // (the bare grey-out gave no such signal).
+  // Submit settles immediately, including against an old host. A host
+  // questionResolved refines that state; it cannot prove the CLI consumed it.
   function addQuestionCard(req) {
     clearWelcome();
     hideGrokking();
@@ -14483,6 +14556,7 @@
     });
     const el = document.createElement("div");
     el.className = "card question";
+    el.dataset.questionReqId = String(req.id);
 
     const title = buildQuestionHead(el, "Grok is asking");
 
@@ -14500,6 +14574,10 @@
 
     let submitBtn;
     let skip;
+    let submitted = false;
+    let skipped = false;
+    let recoveryAnswers;
+    let resolution;
     const updateSubmit = () => {
       if (!submitBtn) return;
       const built = buildQuestionAnswers(questions, effectiveSelections());
@@ -14508,23 +14586,69 @@
     };
     // Collapse the card to its answered/skipped representation: drop the option
     // buttons + Submit + Skip, retitle, and append the chosen answer per block.
-    const collapse = (skipped) => {
+    const collapse = () => {
+      if (el.classList.contains("resolved")) return;
+      // Retain even a half-written or deselected Other draft. The CLI answer
+      // map can trim selected text; recovery must keep what the user typed.
+      recoveryAnswers = selections.map((picked, qi) =>
+        [...picked, ...(otherText[qi] ? [otherText[qi]] : [])].join(", "));
       el.classList.add("resolved");
-      title.textContent = skipped ? "Skipped" : "You answered";
+      title.textContent = skipped ? "Skipped" : "Submitted";
       const actions = el.querySelector(".card-actions");
       if (actions) actions.remove();
       if (skip) skip.remove();
       [...el.querySelectorAll(".question-block")].forEach((block, qi) => {
         const opts = block.querySelector(".question-options");
         if (opts) opts.remove();
-        block.appendChild(answerLineEl(skipped ? "" : (effectiveSelections()[qi] || []).join(", ")));
+        const labels = submitted ? effectiveSelections()[qi].join(", ") : recoveryAnswers[qi];
+        const answer = answerLineEl(labels);
+        if (!labels && !skipped) answer.textContent = "No answer entered";
+        if (skipped && labels) answer.textContent = "Draft: " + labels;
+        block.appendChild(answer);
+        if (submitted && otherText[qi] && !otherSelected[qi]) {
+          const draft = answerLineEl(otherText[qi]);
+          draft.textContent = "Draft: " + otherText[qi];
+          block.appendChild(draft);
+        }
       });
     };
+    const offerRecovery = () => {
+      if (el.querySelector(".question-recover")) return;
+      const recover = document.createElement("button");
+      recover.className = "question-recover";
+      recover.textContent = "Add answers to composer";
+      recover.disabled = !recoveryAnswers.some((answer) => answer.length > 0);
+      recover.onclick = () => {
+        const block = questions.map((q, qi) => recoveryAnswers[qi]
+          ? questionText(q) + "\n" + recoveryAnswers[qi] : "").filter(Boolean).join("\n\n");
+        if (!block) return;
+        input.value = input.value ? input.value + "\n\n" + block : block;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.focus();
+        input.selectionStart = input.selectionEnd = input.value.length;
+      };
+      el.appendChild(recover);
+    };
+    el._resolveQuestion = (outcome) => {
+      if (!["accepted", "stale", "closed"].includes(outcome)) return;
+      // Once stale, a duplicate/reordered acknowledgement cannot resurrect it.
+      if (resolution === "stale" || resolution === outcome) return;
+      resolution = outcome;
+      collapse();
+      if (outcome === "stale" || !submitted && !skipped) {
+        title.textContent = "Question is no longer open";
+        offerRecovery();
+      } else if (outcome === "accepted") {
+        title.textContent = skipped ? "Skipped" : "You answered";
+      }
+    };
     const submit = () => {
+      if (el.classList.contains("resolved")) return;
       const { answers, allAnswered } = buildQuestionAnswers(questions, effectiveSelections());
       if (!allAnswered || otherSelected.some((selected, qi) => selected && !otherText[qi].trim())) return;
+      submitted = true;
+      collapse();
       vscode.postMessage({ type: "questionAnswer", requestId: req.id, answers, annotations: {} });
-      collapse(false);
     };
 
     questions.forEach((q, qi) => {
@@ -14662,8 +14786,10 @@
     skip.className = "question-skip";
     skip.textContent = "Skip";
     skip.onclick = () => {
+      if (el.classList.contains("resolved")) return;
+      skipped = true;
+      collapse();
       vscode.postMessage({ type: "questionCancel", requestId: req.id });
-      collapse(true);
     };
     el.appendChild(skip);
 
@@ -15658,6 +15784,9 @@
   // setup failure (no API key, ffmpeg missing), sends "voiceError" to reset us.
   function renderMic() {
     if (!micBtn) return;
+    if (state.voiceBackendState?.backends) {
+      state.voiceConfigured = !!state.voiceBackendState.backends[state.activeProvider || "grok"];
+    }
     micBtn.classList.toggle("listening", state.mic === "listening");
     micBtn.classList.toggle("transcribing", state.mic === "transcribing");
     micBtn.classList.toggle("connecting", state.mic === "connecting");
@@ -15681,24 +15810,35 @@
       micBtn.innerHTML = ICON.spinner;
       micBtn.title = "Transcribing…";
       micBtn.disabled = true;
-    } else if (IS_REMOTE && !state.voiceConfigured && !voiceNeedsGrokAccount()) {
-      micBtn.innerHTML = ICON.mic;
-      micBtn.title = "Voice dictation is unavailable because the host has no Speech-to-Text credential";
-      micBtn.disabled = true;
     } else {
+      // A remote with no host credential used to be DISABLED here, with the
+      // reason in a `title`. On a phone that is a dead button and nothing
+      // else: there is no hover, so the tooltip never renders, and a tap
+      // produces silence. The host already answers a credential-less start
+      // with a plain error naming what is missing, so the button stays live
+      // and lets it — the same arrangement the desk has always had.
       micBtn.innerHTML = ICON.mic;
       micBtn.title = state.voiceConfigured
         ? "Voice control"
         : voiceNeedsGrokAccount()
           ? "Voice needs Grok connected"
-          : "Voice control — click to set up (needs an xAI API key)";
+          : "Voice control — click to set up (needs an OpenAI or xAI credential)";
       micBtn.disabled = false;
     }
     // "needs setup" dot only when idle, clickable, and no key is configured.
     micBtn.classList.toggle("needs-setup", !micBtn.disabled && state.mic === "idle" && !state.voiceConfigured);
   }
 
+  /** "Connect Grok" is the right advice only when Grok is the missing piece.
+   *  Since a second backend exists, a host can have a credential that this
+   *  provider's pick does not use — and there the host's own error is more
+   *  precise than any wording here, so this stays narrow: nothing usable for
+   *  EITHER vendor, and Grok not connected. Gating on the mere presence of
+   *  `voiceBackendState` (as this did briefly) makes it permanently false,
+   *  because the host always sends that field now. */
   function voiceNeedsGrokAccount() {
+    const backends = state.voiceBackendState;
+    if (backends && (backends.hasXai || backends.hasOpenAi)) return false;
     return !!state.providersKnown && !state.voiceConfigured
       && !state.providers.some((provider) => provider.id === "grok" && provider.connected);
   }
@@ -15940,6 +16080,15 @@
     } else if (state.mic === "idle") {
       if (voiceNeedsGrokAccount()) {
         void explainVoiceNeedsGrok();
+        return;
+      }
+      // The HOST owns the credential and is the only thing that can say which
+      // one is missing — an explicit backend choice with no key for it reads
+      // nothing like "connect Grok". Ask it rather than deciding here, exactly
+      // as the desk does. No microphone is touched on this path, so a tap that
+      // is going to be refused costs no permission prompt.
+      if (!state.voiceConfigured) {
+        vscode.postMessage({ type: "remoteVoiceStart" });
         return;
       }
       void startBrowserMic();
@@ -17635,18 +17784,38 @@
         moveComposerCaret(msg.direction);
         break;
       case "uiConfirmRequest":
+        // A host from before uiConfirmRequest became transient still buffers and
+        // replays it, and reopening a DESTRUCTIVE modal unprompted after a
+        // reconnect is the defect we are fixing. But dropping it silently is not
+        // the answer either: that host is still awaiting this id, with no drain
+        // of its own, so its Edit/Rewind `await confirmInChat` would hang for
+        // ever. Decline it instead — no modal, and the old host fails closed.
+        if (state.replaying) {
+          vscode.postMessage({ type: "uiConfirmAnswer", id: msg.id, ok: false });
+          break;
+        }
         // The host asks; the webview owns the dialog. Always answer, including
         // on dismissal — the host is awaiting this id and a rewind must fail
         // closed rather than hang.
+        if ([...document.querySelectorAll(".confirm-overlay")]
+          .some((el) => el.dataset.confirmReqId === String(msg.id))) break;
         uiConfirm({
+          requestId: msg.id,
           title: msg.title,
           body: msg.body,
           confirmLabel: msg.confirmLabel,
           danger: msg.danger,
         }).then((ok) => {
+          if (ok === undefined) return;
           vscode.postMessage({ type: "uiConfirmAnswer", id: msg.id, ok: !!ok });
         });
         break;
+      case "uiConfirmResolved": {
+        const el = [...document.querySelectorAll(".confirm-overlay")]
+          .find((el) => el.dataset.confirmReqId === String(msg.requestId));
+        if (el) el._resolveConfirm();
+        break;
+      }
       case "truncateMessages": {
         // Rewind/edit: drop only the discarded turns instead of clearing the
         // panel and replaying the whole conversation (which flashed the welcome
@@ -17704,7 +17873,7 @@
         // is gone, neither does the session aggregate.
         state.lastTurnUsage = null;
         if (surviving === 0) state.sessionUsage = null;
-        if (!contextPopover.hidden) openContextPopover();
+        if (!contextPopover.hidden) renderContextPopover();
         hideGrokking();
         hideThinkingIndicator();
         // The newest surviving agent message ends a finished turn, so its
@@ -17790,11 +17959,13 @@
         break;
       }
       case "session": {
+        state.subscriptionWindows = [];
         state.currentModelId = msg.currentModelId;
         state.activeProvider = msg.provider === "codex" || msg.provider === "claude" ? msg.provider : "grok";
         renderQueuedBlocks();
         syncFeedbackButtons();
         syncProviderVoice();
+        renderMic();
         // The nudge is gated on the active provider, and this is the only place
         // that changes — without a repaint here it would linger on the tab the
         // user switched TO until some unrelated render happened to run.
@@ -17899,10 +18070,12 @@
         break;
       case "voiceConfigured":
         state.voiceConfigured = !!msg.value;
+        state.voiceBackendState = msg.backendState;
         if (typeof msg.sendPhrase === "string") state.voiceSendPhrase = msg.sendPhrase;
         if (Array.isArray(msg.keyterms)) state.voiceKeyterms = msg.keyterms.filter((t) => typeof t === "string");
         renderMic();
         renderInputHighlight();
+        refreshSettingsOverlay();
         break;
       case "voicePartial":
         if (state.voiceDiscarded) break;
@@ -18266,10 +18439,10 @@
           fillRestoredAnswer(restoredEl, toolUpdateText(msg.call));
           break;
         }
-        // Live: the interactive card already handled the answer; drop the stash so
-        // the chip stays suppressed and we don't fall through to the diff path.
+        // Live: the host resolves the interactive card. Drop the stash so the
+        // chip stays suppressed and we don't fall through to the diff path.
         if (state.questionToolCalls.has(msg.call?.toolCallId)) {
-          if (toolUpdateText(msg.call) || String(msg.call?.status).toLowerCase() === "completed") {
+          if (toolUpdateText(msg.call) || ["completed", "failed"].includes(String(msg.call?.status).toLowerCase())) {
             state.questionToolCalls.delete(msg.call.toolCallId);
           }
           break;
@@ -18442,6 +18615,12 @@
         if (el) resolvePlanCardEl(el, msg.verdict);
         break;
       }
+      case "questionResolved": {
+        const el = liveTranscriptQueryAll(".card.question")
+          .find((c) => c.dataset.questionReqId === String(msg.requestId));
+        if (el) el._resolveQuestion(msg.outcome);
+        break;
+      }
       case "questionRequest":
         addQuestionCard(msg.req);
         if (!state.replaying) {
@@ -18488,6 +18667,10 @@
         // turn ends (research/signals-refresh-probe.cjs), which then updates
         // it via its own meta or the host's contextUsage read.
         if (msg.meta?.totalTokens != null) updateDonut(msg.meta.totalTokens);
+        break;
+      case "subscriptionUsage":
+        state.subscriptionWindows = Array.isArray(msg.windows) ? msg.windows : [];
+        if (!contextPopover.hidden) renderContextPopover();
         break;
       case "contextUsage":
         // Host-authoritative occupancy: grok's signals.json / live envelope,
@@ -18744,7 +18927,7 @@
         // session total), so keep whatever we have rather than blanking it.
         if (msg.turn) state.lastTurnUsage = msg.turn;
         if (msg.session) state.sessionUsage = msg.session;
-        if (!contextPopover.hidden) openContextPopover(); // live-refresh if open
+        if (!contextPopover.hidden) renderContextPopover();
         break;
       case "setBusy":
         // Host-driven busy state for flows where there's no natural agentEnd
@@ -18787,6 +18970,9 @@
         addSessionContextBanner();
         break;
       case "clearMessages":
+        for (const el of document.querySelectorAll(".confirm-overlay[data-confirm-req-id]")) {
+          el._resolveConfirm();
+        }
         resetForNewSession();
         break;
       case "onboarding":

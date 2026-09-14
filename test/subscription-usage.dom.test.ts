@@ -1,0 +1,102 @@
+import { describe, expect, it } from "vitest";
+import { bootWebview, click, dispatch } from "./webview-harness";
+
+const windowUsage = {
+  usedPercent: 3, label: "Weekly", periodType: "USAGE_PERIOD_TYPE_WEEKLY",
+  periodStart: "2026-09-12T00:00:00.000Z", periodEnd: "2026-09-19T00:00:00.000Z",
+  observedAt: "2026-09-14T00:00:00.000Z",
+};
+const open = (h: ReturnType<typeof bootWebview>) => {
+  click(h.window, h.doc.getElementById("donut")!);
+  return h.doc.getElementById("context-popover")!;
+};
+
+describe("subscription usage in the context popover", () => {
+  it.each(["grok", "claude", "codex"] as const)("%s with no data has a visible, deliberate empty state without a subscription meter", (provider) => {
+    const h = bootWebview();
+    dispatch(h.window, { type: "session", provider, models: [], currentModelId: "model" } as any);
+    const pop = open(h);
+    expect(pop.hidden).toBe(false);
+    expect(pop.querySelector(".subscription-usage")?.textContent).toContain("No subscription usage reported yet.");
+    expect(pop.querySelector(".subscription-fullness")).toBeNull();
+    expect(pop.querySelector('.context-fullness[aria-label="Context used"]')).not.toBeNull();
+  });
+
+  it.each(["knowledge", "coding"] as const)("shows a list of labelled windows alongside context in %s mode", (appPurpose) => {
+    const h = bootWebview();
+    dispatch(h.window, { type: "initialState", appPurpose, capabilities: {} } as any);
+    dispatch(h.window, { type: "contextUsage", used: 25, window: 100 });
+    const iconTitle = h.doc.getElementById("donut")!.title;
+    dispatch(h.window, { type: "subscriptionUsage", windows: [windowUsage,
+      { ...windowUsage, label: "5-hour", periodType: "five_hour", usedPercent: 80 }] });
+    const pop = open(h);
+    const section = pop.querySelector(".subscription-usage")!;
+    expect(section.textContent).toContain("Subscription usage · account");
+    expect(section.textContent).toContain("3% used · 97% left");
+    expect(section.textContent).toContain("80% used · 20% left");
+    expect(section.textContent).toContain("Observed");
+    expect(section.textContent).toMatch(/Resets|Reported reset/);
+    expect(section.querySelectorAll('[role="meter"]')).toHaveLength(2);
+    expect(pop.querySelector(".context-fullness")!.getAttribute("aria-valuenow")).toBe("25");
+    expect(h.doc.getElementById("donut")!.title).toBe(iconTitle);
+  });
+
+  it.each([undefined, [], [{}], [{ ...windowUsage, usedPercent: null }],
+    [{ ...windowUsage, usedPercent: "0" }], [{ ...windowUsage, usedPercent: NaN }],
+    [{ ...windowUsage, periodEnd: "bad" }]])("malformed/missing windows render nothing rather than zero: %j", (windows) => {
+    const h = bootWebview();
+    dispatch(h.window, { type: "subscriptionUsage", windows } as any);
+    const section = open(h).querySelector(".subscription-usage")!;
+    expect(section.querySelector('[role="meter"]')).toBeNull();
+    expect(section.textContent).toContain("No subscription usage reported yet.");
+    expect(section.textContent).not.toContain("0%");
+  });
+
+  it("accepts a measured zero and clears it on an account snapshot or session switch", () => {
+    const h = bootWebview();
+    const pop = open(h);
+    dispatch(h.window, { type: "subscriptionUsage", windows: [{ ...windowUsage, usedPercent: 0 }] });
+    expect(pop.querySelector(".subscription-fullness")!.getAttribute("aria-valuenow")).toBe("0");
+    dispatch(h.window, { type: "subscriptionUsage", windows: [] });
+    expect(pop.querySelector(".subscription-fullness")).toBeNull();
+    dispatch(h.window, { type: "subscriptionUsage", windows: [windowUsage] });
+    dispatch(h.window, { type: "session", provider: "claude", models: [], currentModelId: "model" } as any);
+    expect(pop.querySelector(".subscription-fullness")).toBeNull();
+    dispatch(h.window, { type: "subscriptionUsage", windows: [windowUsage] });
+    dispatch(h.window, { type: "clearMessages" });
+    // Clearing a session must not retain a previous account's meter.
+    if (pop.hidden) open(h);
+    expect(pop.querySelector(".subscription-fullness")).toBeNull();
+  });
+
+  it("Claude shows only its latest labelled window and never fabricates reset dates", () => {
+    const h = bootWebview();
+    dispatch(h.window, { type: "session", provider: "claude", models: [], currentModelId: "model" } as any);
+    const pop = open(h);
+    dispatch(h.window, { type: "subscriptionUsage", windows: [windowUsage] });
+    dispatch(h.window, { type: "subscriptionUsage", windows: [{
+      usedPercent: 42, label: "Weekly · Sonnet", periodType: "seven_day_sonnet", observedAt: windowUsage.observedAt,
+    }] });
+    expect(pop.querySelectorAll(".subscription-fullness")).toHaveLength(1);
+    expect(pop.textContent).toContain("Weekly · Sonnet");
+    expect(pop.textContent).toContain("Reset time not reported.");
+    expect(pop.textContent).toContain("Latest reported window; other limits may apply.");
+  });
+
+  it("requests a refresh only on actual open, never on an incoming usage redraw", () => {
+    const h = bootWebview();
+    open(h);
+    const requests = () => h.posted.filter((m: any) => m.type === "refreshSubscriptionUsage");
+    expect(requests()).toHaveLength(1);
+    for (let i = 0; i < 5; i++) {
+      dispatch(h.window, { type: "subscriptionUsage", windows: [windowUsage] });
+      dispatch(h.window, { type: "usage", session: { inputTokens: i + 1 } });
+      dispatch(h.window, { type: "contextUsage", used: 25, window: 100 });
+    }
+    expect(requests()).toHaveLength(1);
+    click(h.window, h.doc.getElementById("donut")!); // close
+    open(h);
+    expect(requests()).toHaveLength(2);
+    expect(h.posted.some((m: any) => m.type === "send")).toBe(false);
+  });
+});
